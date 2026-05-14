@@ -15,11 +15,17 @@ public partial class App : Application
 
         Host = new AppHost();
         base.OnStartup(e);
+
+        _ = Host.StartBackgroundUpdateCheckAsync(_appShutdown.Token);
     }
+
+    private readonly CancellationTokenSource _appShutdown = new();
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _appShutdown.Cancel();
         Host?.Dispose();
+        _appShutdown.Dispose();
         base.OnExit(e);
     }
 
