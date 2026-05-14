@@ -64,5 +64,12 @@ for (int p = 0; p <= 100; p += 10)
 
 Directory.CreateDirectory(Path.GetDirectoryName(realOutputPath)!);
 await File.WriteAllTextAsync(realOutputPath, "fake video bytes");
+
+// Side-channel for tests: drop a sibling .args file listing the args this fake received.
+// Real yt-dlp does nothing of the sort, but the file lets tests assert on argv composition
+// without us having to redirect stdout (which already carries progress lines).
+var argsLogPath = realOutputPath + ".args";
+await File.WriteAllLinesAsync(argsLogPath, args);
+
 Console.WriteLine($"[download] Destination: {realOutputPath}");
 return 0;

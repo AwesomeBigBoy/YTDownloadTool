@@ -36,7 +36,7 @@ public static class ErrorMapper
                 RegexOptions.Compiled | RegexOptions.IgnoreCase)),
 
         new(ErrorCategory.ComponentMissing,   "E-COMP001",
-            "處理元件缺失或損毀，請從設定→關於→修復元件重新下載", false,
+            "處理元件異常，請至『設定→進階→重新下載元件』修復", false,
             new(@"ffmpeg.*not found|ffprobe.*not found|cannot find.*ffmpeg",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase)),
     };

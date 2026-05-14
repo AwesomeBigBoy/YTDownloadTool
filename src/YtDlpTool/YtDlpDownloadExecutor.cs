@@ -44,7 +44,12 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
                 var newStem = NextAvailableStem(job.SaveDirectory, sanitizedStem, Path.GetExtension(probableOutput));
                 request = request with { SanitizedFileStem = newStem };
             }
-            // Overwrite = leave request alone; yt-dlp will overwrite.
+            else if (resolution == FilenameConflictResolution.Overwrite)
+            {
+                // yt-dlp refuses overwrites by default — without --force-overwrites the
+                // download fails with a message that can incidentally match ComponentMissing.
+                request = request with { ForceOverwrite = true };
+            }
         }
 
         var processProgress = new Progress<ProgressReport>(p =>
