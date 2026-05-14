@@ -16,21 +16,29 @@ public sealed class DownloadQueue : IDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private readonly int _max429Retries;
     private readonly TimeSpan _rateLimitRetryDelay;
+    private readonly TimeSpan _noProgressTimeout;
+    private readonly TimeSpan _watchdogInterval;
     private int _maxConcurrency;
 
     private const int DefaultMax429Retries = 1;
     private static readonly TimeSpan DefaultRateLimitRetryDelay = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan DefaultNoProgressTimeout = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan DefaultWatchdogInterval = TimeSpan.FromSeconds(5);
 
     public DownloadQueue(IDownloadExecutor executor, int maxConcurrency, Action<QueueEvent> onEvent)
         : this(executor, maxConcurrency, onEvent, logger: null,
                max429Retries: DefaultMax429Retries,
-               rateLimitRetryDelay: DefaultRateLimitRetryDelay)
+               rateLimitRetryDelay: DefaultRateLimitRetryDelay,
+               noProgressTimeout: DefaultNoProgressTimeout,
+               watchdogInterval: DefaultWatchdogInterval)
     { }
 
     public DownloadQueue(IDownloadExecutor executor, int maxConcurrency, Action<QueueEvent> onEvent, AppLogger? logger)
         : this(executor, maxConcurrency, onEvent, logger,
                max429Retries: DefaultMax429Retries,
-               rateLimitRetryDelay: DefaultRateLimitRetryDelay)
+               rateLimitRetryDelay: DefaultRateLimitRetryDelay,
+               noProgressTimeout: DefaultNoProgressTimeout,
+               watchdogInterval: DefaultWatchdogInterval)
     { }
 
     // Test-only ctor: lets tests shorten the rate-limit retry delay so they don't sleep 30s.
@@ -41,6 +49,22 @@ public sealed class DownloadQueue : IDisposable
         AppLogger? logger,
         int max429Retries,
         TimeSpan rateLimitRetryDelay)
+        : this(executor, maxConcurrency, onEvent, logger,
+               max429Retries, rateLimitRetryDelay,
+               noProgressTimeout: DefaultNoProgressTimeout,
+               watchdogInterval: DefaultWatchdogInterval)
+    { }
+
+    // Full ctor: lets tests also shorten the no-progress watchdog timings.
+    public DownloadQueue(
+        IDownloadExecutor executor,
+        int maxConcurrency,
+        Action<QueueEvent> onEvent,
+        AppLogger? logger,
+        int max429Retries,
+        TimeSpan rateLimitRetryDelay,
+        TimeSpan noProgressTimeout,
+        TimeSpan watchdogInterval)
     {
         if (maxConcurrency < 1 || maxConcurrency > 10)
             throw new ArgumentOutOfRangeException(nameof(maxConcurrency), "must be 1..10");
@@ -51,6 +75,8 @@ public sealed class DownloadQueue : IDisposable
         _slot = new SemaphoreSlim(maxConcurrency, 10);
         _max429Retries = max429Retries;
         _rateLimitRetryDelay = rateLimitRetryDelay;
+        _noProgressTimeout = noProgressTimeout;
+        _watchdogInterval = watchdogInterval;
     }
 
     public int MaxConcurrency
@@ -126,6 +152,11 @@ public sealed class DownloadQueue : IDisposable
     {
         var jobHash = AppLogger.HashSuffix(job.Url);
         var startedAt = DateTime.UtcNow;
+        // Stuck-download watchdog: track the wall-clock time of the last progress report
+        // and a flag the watchdog flips when it's the one who cancelled the job.
+        long lastProgressTicks = DateTime.UtcNow.Ticks;
+        var stuckCancelled = 0; // 0 = not stuck; 1 = watchdog tripped
+        using var watchdogStop = new CancellationTokenSource();
         try
         {
             job.MarkDownloading();
@@ -134,8 +165,37 @@ public sealed class DownloadQueue : IDisposable
 
             var progress = new Progress<DownloadProgressSnapshot>(snap =>
             {
+                Interlocked.Exchange(ref lastProgressTicks, DateTime.UtcNow.Ticks);
                 job.ReportProgress(snap.Percent, snap.BytesPerSecond, snap.Eta);
                 _onEvent(new JobProgressEvent(job, snap));
+            });
+
+            // Start the watchdog: every `_watchdogInterval`, check the gap since the last
+            // progress report. If it exceeds `_noProgressTimeout`, mark this job as stuck
+            // and cancel its CTS so the executor unwinds.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    while (!watchdogStop.IsCancellationRequested && !cts.IsCancellationRequested)
+                    {
+                        try { await Task.Delay(_watchdogInterval, watchdogStop.Token).ConfigureAwait(false); }
+                        catch (OperationCanceledException) { return; }
+                        var last = new DateTime(Interlocked.Read(ref lastProgressTicks), DateTimeKind.Utc);
+                        if (DateTime.UtcNow - last > _noProgressTimeout)
+                        {
+                            Interlocked.Exchange(ref stuckCancelled, 1);
+                            _logger?.Warn("download.stuck", new Dictionary<string, string>
+                            {
+                                ["job_hash"] = jobHash,
+                                ["timeout_s"] = ((int)_noProgressTimeout.TotalSeconds).ToString()
+                            });
+                            try { cts.Cancel(); } catch { }
+                            return;
+                        }
+                    }
+                }
+                catch { /* watchdog should never throw out */ }
             });
 
             DownloadExecutionResult result;
@@ -146,6 +206,20 @@ public sealed class DownloadQueue : IDisposable
             catch (OperationCanceledException)
             {
                 result = new DownloadExecutionResult(false, null, null, WasCancelled: true);
+            }
+
+            // If the watchdog cancelled the job, rewrite the result so the UI sees a failure
+            // with a useful message instead of a generic "cancelled".
+            if (result.WasCancelled && Interlocked.CompareExchange(ref stuckCancelled, 0, 0) == 1)
+            {
+                result = new DownloadExecutionResult(
+                    false,
+                    null,
+                    new MappedError(ErrorCategory.NetworkError,
+                        "下載卡住，請選擇其他畫質或音質重新下載",
+                        "E-STUCK01",
+                        true),
+                    WasCancelled: false);
             }
 
             // 429 retry: if rate-limited and within retry budget, wait and retry once.
@@ -166,6 +240,7 @@ public sealed class DownloadQueue : IDisposable
 
                     if (!cts.IsCancellationRequested)
                     {
+                        Interlocked.Exchange(ref lastProgressTicks, DateTime.UtcNow.Ticks);
                         try
                         {
                             result = await _executor.ExecuteAsync(job, progress, cts.Token).ConfigureAwait(false);
@@ -209,6 +284,7 @@ public sealed class DownloadQueue : IDisposable
         }
         finally
         {
+            try { watchdogStop.Cancel(); } catch { }
             _retryCounts.TryRemove(job.Id, out _);
             _running.TryRemove(job.Id, out _);
             cts.Dispose();

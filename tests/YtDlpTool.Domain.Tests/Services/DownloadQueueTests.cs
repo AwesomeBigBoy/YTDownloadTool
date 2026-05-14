@@ -160,6 +160,53 @@ public class DownloadQueueTests
         }
     }
 
+    private sealed class StuckFakeExecutor : IDownloadExecutor
+    {
+        public async Task<DownloadExecutionResult> ExecuteAsync(
+            DownloadJob job, IProgress<DownloadProgressSnapshot> progress,
+            CancellationToken cancellationToken)
+        {
+            // Report progress once then go silent until cancelled.
+            progress.Report(new DownloadProgressSnapshot(5, 1024, TimeSpan.FromSeconds(60)));
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return new DownloadExecutionResult(false, null, null, WasCancelled: true);
+            }
+            return new DownloadExecutionResult(false, null, null, WasCancelled: true);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadQueue_StuckDownload_ReportsFailure()
+    {
+        var fake = new StuckFakeExecutor();
+        var events = new List<QueueEvent>();
+        using var queue = new DownloadQueue(
+            fake,
+            maxConcurrency: 1,
+            onEvent: e => { lock (events) events.Add(e); },
+            logger: null,
+            max429Retries: 0,
+            rateLimitRetryDelay: TimeSpan.FromMilliseconds(50),
+            noProgressTimeout: TimeSpan.FromMilliseconds(50),
+            watchdogInterval: TimeSpan.FromMilliseconds(10));
+
+        queue.Enqueue(MakeJob());
+        await WaitFor(() => { lock (events) return events.Any(e => e is JobFailedEvent); }, timeoutMs: 4000);
+
+        lock (events)
+        {
+            var failed = events.OfType<JobFailedEvent>().FirstOrDefault();
+            Assert.NotNull(failed);
+            Assert.Equal("E-STUCK01", failed!.Error.ErrorCode);
+            Assert.DoesNotContain(events, e => e is JobCancelledEvent);
+        }
+    }
+
     private static async Task WaitFor(Func<bool> cond, int timeoutMs = 2000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
