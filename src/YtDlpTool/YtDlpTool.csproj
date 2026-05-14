@@ -22,6 +22,10 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+    <PackageReference Include="CommunityToolkit.WinUI.Notifications" Version="7.1.2" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\YtDlpTool.Domain\YtDlpTool.Domain.csproj" />
     <ProjectReference Include="..\YtDlpTool.Process\YtDlpTool.Process.csproj" />
   </ItemGroup>
