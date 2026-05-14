@@ -1,3 +1,4 @@
+using YtDlpTool.Domain.Logging;
 using YtDlpTool.Domain.Persistence;
 using YtDlpTool.Domain.Security;
 
@@ -8,15 +9,49 @@ public sealed class UpdateApplier
     private readonly IUpdateHttpClient _http;
     private readonly SigstoreVerifierOptions _sigstoreOptions;
     private readonly AppPaths _paths;
+    private readonly AppLogger? _logger;
 
     public UpdateApplier(IUpdateHttpClient http, SigstoreVerifierOptions sigstoreOptions, AppPaths paths)
+        : this(http, sigstoreOptions, paths, logger: null) { }
+
+    public UpdateApplier(IUpdateHttpClient http, SigstoreVerifierOptions sigstoreOptions, AppPaths paths, AppLogger? logger)
     {
         _http = http;
         _sigstoreOptions = sigstoreOptions;
         _paths = paths;
+        _logger = logger;
     }
 
     public async Task<UpdateApplyResult> ApplyAsync(
+        IReadOnlyList<ManifestFileEntry> entries,
+        IProgress<UpdateApplyProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var startedAt = DateTime.UtcNow;
+        _logger?.Info("update.apply.start", new Dictionary<string, string>
+        {
+            ["count"] = entries.Count.ToString()
+        });
+        var result = await ApplyCoreAsync(entries, progress, cancellationToken).ConfigureAwait(false);
+        if (result.IsSuccess)
+        {
+            var elapsed = (int)(DateTime.UtcNow - startedAt).TotalMilliseconds;
+            _logger?.Info("update.apply.success", new Dictionary<string, string>
+            {
+                ["elapsed_ms"] = elapsed.ToString()
+            });
+        }
+        else
+        {
+            _logger?.Warn("update.apply.failed", new Dictionary<string, string>
+            {
+                ["reason"] = result.FailureReason ?? "unknown"
+            });
+        }
+        return result;
+    }
+
+    private async Task<UpdateApplyResult> ApplyCoreAsync(
         IReadOnlyList<ManifestFileEntry> entries,
         IProgress<UpdateApplyProgress>? progress,
         CancellationToken cancellationToken)

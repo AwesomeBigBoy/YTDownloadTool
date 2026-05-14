@@ -59,11 +59,11 @@ public sealed class AppHost : IDisposable
             TrustedRootPem: SigstoreRoots.FulcioRootPem);
 
         UpdateChecker = new UpdateChecker(UpdateHttp, sigstoreOpts, owner: "AwesomeBigBoy", repo: "YTDownloadTool");
-        UpdateApplier = new UpdateApplier(UpdateHttp, sigstoreOpts, Paths);
+        UpdateApplier = new UpdateApplier(UpdateHttp, sigstoreOpts, Paths, Logger);
 
         var executor = new YtDlpDownloadExecutor(YtDlp);
         var journaledOnEvent = JournaledQueue.Wrap(StateJournal, OnQueueEvent);
-        Queue = new DownloadQueue(executor, Config.ConcurrentDownloads, journaledOnEvent);
+        Queue = new DownloadQueue(executor, Config.ConcurrentDownloads, journaledOnEvent, Logger);
     }
 
     public event EventHandler<QueueEvent>? QueueEventRaised;
