@@ -37,7 +37,7 @@
 
                     <TextBlock Grid.Row="1" Grid.Column="0" Text="{StaticResource Settings.Concurrency}" VerticalAlignment="Center" />
                     <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal">
-                        <Slider x:Name="ConcurrencySlider" Width="200" Minimum="1" Maximum="5" TickPlacement="BottomRight"
+                        <Slider x:Name="ConcurrencySlider" Width="200" Minimum="1" Maximum="10" TickPlacement="BottomRight"
                                 IsSnapToTickEnabled="True" TickFrequency="1" />
                         <TextBlock Margin="8,0,0,0" Text="{Binding Value, ElementName=ConcurrencySlider}" VerticalAlignment="Center" />
                     </StackPanel>

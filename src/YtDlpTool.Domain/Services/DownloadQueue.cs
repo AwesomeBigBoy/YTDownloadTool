@@ -42,13 +42,13 @@ public sealed class DownloadQueue : IDisposable
         int max429Retries,
         TimeSpan rateLimitRetryDelay)
     {
-        if (maxConcurrency < 1 || maxConcurrency > 5)
-            throw new ArgumentOutOfRangeException(nameof(maxConcurrency), "must be 1..5");
+        if (maxConcurrency < 1 || maxConcurrency > 10)
+            throw new ArgumentOutOfRangeException(nameof(maxConcurrency), "must be 1..10");
         _executor = executor;
         _onEvent = onEvent;
         _logger = logger;
         _maxConcurrency = maxConcurrency;
-        _slot = new SemaphoreSlim(maxConcurrency, 5);
+        _slot = new SemaphoreSlim(maxConcurrency, 10);
         _max429Retries = max429Retries;
         _rateLimitRetryDelay = rateLimitRetryDelay;
     }
@@ -58,7 +58,7 @@ public sealed class DownloadQueue : IDisposable
         get => _maxConcurrency;
         set
         {
-            if (value < 1 || value > 5) throw new ArgumentOutOfRangeException(nameof(value));
+            if (value < 1 || value > 10) throw new ArgumentOutOfRangeException(nameof(value));
             var delta = value - _maxConcurrency;
             _maxConcurrency = value;
             if (delta > 0) _slot.Release(delta);
