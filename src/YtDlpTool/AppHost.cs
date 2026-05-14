@@ -180,6 +180,12 @@ public sealed class AppHost : IDisposable
         catch { return ""; }
     }
 
+    public IReadOnlyList<JobSnapshot> ReadAndClearInterruptedJobs()
+    {
+        var events = StateJournal.ReadSnapshotAndClear(Paths.StateLog);
+        return StateJournal.ReconstructOpenJobs(events).ToList();
+    }
+
     public void Dispose()
     {
         Queue.Dispose();
