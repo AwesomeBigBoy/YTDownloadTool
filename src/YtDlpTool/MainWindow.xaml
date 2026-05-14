@@ -14,10 +14,8 @@
         <!-- Aurora animated layer behind everything -->
         <views:AuroraBackground />
 
-        <!-- Update banner host (empty until Phase 9 fills it) -->
-        <Border x:Name="UpdateBannerHost"
-                VerticalAlignment="Top"
-                Visibility="Collapsed" />
+        <!-- Update banner host -->
+        <views:UpdateBannerView x:Name="UpdateBanner" VerticalAlignment="Top" />
 
         <!-- Main content -->
         <Grid Margin="{StaticResource Space.5}">

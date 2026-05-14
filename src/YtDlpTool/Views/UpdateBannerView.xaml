@@ -1,0 +1,49 @@
+<UserControl x:Class="YtDlpTool.Views.UpdateBannerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisibilityConverter}}"
+             Height="56">
+    <Border Background="{StaticResource Brush.Accent}" CornerRadius="0,0,12,12">
+        <Grid Margin="24,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Idle state -->
+            <TextBlock Grid.Column="0"
+                       Text="{Binding Headline}"
+                       Foreground="White"
+                       VerticalAlignment="Center"
+                       Visibility="{Binding IsApplying, Converter={StaticResource InverseBoolToVisibilityConverter}}" />
+
+            <!-- Applying state -->
+            <StackPanel Grid.Column="0" Orientation="Vertical" VerticalAlignment="Center"
+                        Visibility="{Binding IsApplying, Converter={StaticResource BoolToVisibilityConverter}}">
+                <TextBlock Foreground="White" Text="{Binding ApplyStatus}" />
+                <ProgressBar Height="3" Margin="0,4,0,0"
+                             Value="{Binding ApplyPercent}" Foreground="White" />
+            </StackPanel>
+
+            <Button Grid.Column="1"
+                    Content="一鍵更新"
+                    Background="White"
+                    Foreground="{StaticResource Brush.Accent}"
+                    Padding="14,6"
+                    Margin="12,0"
+                    BorderThickness="0"
+                    Cursor="Hand"
+                    Click="OnOneClickClicked"
+                    Visibility="{Binding IsApplying, Converter={StaticResource InverseBoolToVisibilityConverter}}" />
+
+            <Button Grid.Column="2"
+                    Content="✕"
+                    Background="Transparent"
+                    Foreground="White"
+                    BorderThickness="0"
+                    Cursor="Hand"
+                    Click="OnLaterClicked" />
+        </Grid>
+    </Border>
+</UserControl>
