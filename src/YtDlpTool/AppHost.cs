@@ -36,7 +36,10 @@ public sealed class AppHost : IDisposable
             Config.DefaultSaveDirectory = AppConfig.CreateDefault().DefaultSaveDirectory;
             ConfigStore.Save(Config);
         }
-        Directory.CreateDirectory(Config.DefaultSaveDirectory);
+        // NOTE: do not pre-create Config.DefaultSaveDirectory here — that left an empty
+        // YtDlpTool folder in the user's Downloads even when they never queued a job.
+        // The directory is created just-in-time by YtDlpDownloadExecutor before the
+        // first download into that location.
 
         Logger = new AppLogger(
             Paths.LogsDirectory,
