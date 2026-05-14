@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using YtDlpTool.Domain.Models;
+using YtDlpTool.Domain.Updates;
 
 namespace YtDlpTool.Dialogs;
 
@@ -10,6 +11,7 @@ public partial class SettingsDialog : Window
 {
     private readonly AppHost _host;
     private string _selectedSaveDir;
+    private CancellationTokenSource? _checkUpdateCts;
 
     public SettingsDialog(AppHost host)
     {
@@ -17,6 +19,10 @@ public partial class SettingsDialog : Window
         _host = host;
         _selectedSaveDir = host.Config.DefaultSaveDirectory;
         LoadFromConfig();
+        Closed += (_, _) =>
+        {
+            try { _checkUpdateCts?.Cancel(); } catch { }
+        };
     }
 
     private void LoadFromConfig()
@@ -97,4 +103,92 @@ public partial class SettingsDialog : Window
     private static ThemePreference ParseTheme(ComboBox c) =>
         c.SelectedItem is ComboBoxItem it && it.Tag is string tag &&
         Enum.TryParse<ThemePreference>(tag, out var t) ? t : ThemePreference.System;
+
+    // -------- Fix 1: manual "check now & update" trigger --------
+    private async void OnCheckUpdateClicked(object sender, RoutedEventArgs e)
+    {
+        _checkUpdateCts?.Cancel();
+        _checkUpdateCts = new CancellationTokenSource();
+        var ct = _checkUpdateCts.Token;
+
+        CheckUpdateNowButton.IsEnabled = false;
+        UpdateStatusText.Visibility = Visibility.Visible;
+        UpdateProgressBar.Visibility = Visibility.Visible;
+        UpdateProgressBar.IsIndeterminate = true;
+        UpdateStatusText.Text = "檢查中…";
+
+        try
+        {
+            var installed = await _host.GetInstalledVersionsAsync().ConfigureAwait(true);
+            if (ct.IsCancellationRequested) return;
+            var availability = await _host.UpdateChecker.CheckAsync(installed, ct).ConfigureAwait(true);
+            if (ct.IsCancellationRequested) return;
+
+            if (!availability.HasUpdate || availability.NewerFiles.Count == 0)
+            {
+                UpdateProgressBar.IsIndeterminate = false;
+                UpdateProgressBar.Visibility = Visibility.Collapsed;
+                UpdateStatusText.Text = availability.FailureReason is null
+                    ? "已是最新版本"
+                    : $"檢查失敗：{availability.FailureReason}";
+                await Task.Delay(2000, ct).ConfigureAwait(true);
+                UpdateStatusText.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            await ApplyUpdateAsync(availability.NewerFiles, ct).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) { /* dialog closed */ }
+        catch (Exception ex)
+        {
+            UpdateProgressBar.IsIndeterminate = false;
+            UpdateProgressBar.Visibility = Visibility.Collapsed;
+            UpdateStatusText.Text = $"更新失敗：{ex.Message}";
+        }
+        finally
+        {
+            CheckUpdateNowButton.IsEnabled = true;
+        }
+    }
+
+    private async Task ApplyUpdateAsync(IReadOnlyList<ManifestFileEntry> entries, CancellationToken ct)
+    {
+        UpdateProgressBar.IsIndeterminate = false;
+        UpdateProgressBar.Value = 0;
+        var progress = new Progress<UpdateApplyProgress>(p => ApplyUpdateStageToUi(p));
+        var result = await _host.UpdateApplier.ApplyAsync(entries, progress, ct).ConfigureAwait(true);
+        if (ct.IsCancellationRequested) return;
+        if (result.IsSuccess)
+        {
+            UpdateStatusText.Text = "✓ 已更新到最新版本";
+            UpdateProgressBar.Value = 100;
+            try { await Task.Delay(2000, ct).ConfigureAwait(true); }
+            catch (OperationCanceledException) { return; }
+            UpdateStatusText.Visibility = Visibility.Collapsed;
+            UpdateProgressBar.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            UpdateStatusText.Text = $"更新失敗：{result.FailureReason}";
+        }
+    }
+
+    private void ApplyUpdateStageToUi(UpdateApplyProgress p)
+    {
+        // Marshals to the dispatcher; Progress<T> already captures SynchronizationContext on the
+        // UI thread where the handler was registered, so this lambda is already main-thread safe.
+        UpdateProgressBar.Value = p.FilePercent;
+        UpdateStatusText.Text = p.Stage switch
+        {
+            UpdateApplyStage.Downloading        => $"下載中 · {p.FileName} · {p.FilePercent:0}%",
+            UpdateApplyStage.VerifyingHash      => "驗證雜湊…",
+            UpdateApplyStage.VerifyingSignature => "驗證簽章…",
+            UpdateApplyStage.Applying           => "套用中…",
+            UpdateApplyStage.Done               => "✓ 已更新到最新版本",
+            UpdateApplyStage.RolledBack         => "更新失敗，已自動還原",
+            UpdateApplyStage.Failed             => "更新失敗",
+            _                                   => UpdateStatusText.Text
+        };
+    }
+
 }
