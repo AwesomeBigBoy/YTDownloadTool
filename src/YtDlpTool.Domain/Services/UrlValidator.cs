@@ -15,14 +15,16 @@ public sealed class UrlValidator
         if (string.IsNullOrWhiteSpace(input))
             return UrlValidationResult.Fail("空網址");
 
-        if (input.Contains('%'))
-            return UrlValidationResult.Fail("不接受 URL-encoded 主機");
-
         if (!Uri.TryCreate(input, UriKind.Absolute, out var uri))
             return UrlValidationResult.Fail("不是有效的網址");
 
         if (uri.Scheme != "https")
             return UrlValidationResult.Fail("只接受 https");
+
+        // Reject percent-encoded host components (defence against homograph variants).
+        // Done on the host only — legitimate paths/queries may contain %xx (e.g. ?list=PL%20foo).
+        if (uri.Host != Uri.UnescapeDataString(uri.Host))
+            return UrlValidationResult.Fail("拒絕 URL-encoded 主機名稱");
 
         var host = uri.IdnHost;
         if (host.Length != uri.Host.Length)
