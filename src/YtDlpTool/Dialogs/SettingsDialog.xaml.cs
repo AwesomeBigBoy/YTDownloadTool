@@ -63,7 +63,7 @@ public partial class SettingsDialog : Window
         var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
         MessageBox.Show(
             $"YtDlpTool {version}\n\nSigstore 簽署者：" +
-            "https://github.com/OWNER/REPO/.github/workflows/release.yml\n\n" +
+            "https://github.com/placeholder-owner/YtDlpTool/.github/workflows/release.yml\n\n" +
             "授權：MIT (本工具)\nyt-dlp：Unlicense\nffmpeg：GPL/LGPL",
             "關於 YtDlpTool", MessageBoxButton.OK, MessageBoxImage.Information);
     }

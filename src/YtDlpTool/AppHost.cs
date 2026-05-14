@@ -55,12 +55,13 @@ public sealed class AppHost : IDisposable
 
         var sigstoreOpts = new SigstoreVerifierOptions(
             ExpectedIssuer: "https://token.actions.githubusercontent.com",
-            // Owner/repo filled in by Phase 10 release workflow; here it's a placeholder
-            // that will match nothing in dev builds — verifier returns Fail, UpdateChecker swallows it.
-            ExpectedSanRegex: @"^https://github\.com/OWNER/REPO/\.github/workflows/release\.yml@refs/tags/v.*$",
+            // Owner/repo is currently a literal placeholder ("placeholder-owner/YtDlpTool").
+            // Replace with the real GitHub owner/repo before the first real release; in dev/test builds
+            // the SAN regex matches nothing, so the verifier returns Fail and UpdateChecker swallows it.
+            ExpectedSanRegex: @"^https://github\.com/placeholder-owner/YtDlpTool/\.github/workflows/release\.yml@refs/tags/v.*$",
             TrustedRootPem: SigstoreRoots.FulcioRootPem);
 
-        UpdateChecker = new UpdateChecker(UpdateHttp, sigstoreOpts, owner: "OWNER", repo: "REPO");
+        UpdateChecker = new UpdateChecker(UpdateHttp, sigstoreOpts, owner: "placeholder-owner", repo: "YtDlpTool");
         UpdateApplier = new UpdateApplier(UpdateHttp, sigstoreOpts, Paths);
 
         var executor = new YtDlpDownloadExecutor(YtDlp);
