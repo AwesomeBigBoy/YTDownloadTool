@@ -20,7 +20,7 @@ public class DownloadQueueTests
     {
         public int Started, Completed;
         public TaskCompletionSource? GateForFirstJob;
-        public bool ReturnFailure;
+        public bool ReturnFailure = false; // explicit init silences CS0649 across compilers
         public bool RespectCancellation = true;
 
         public async Task<DownloadExecutionResult> ExecuteAsync(
