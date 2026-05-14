@@ -3,11 +3,28 @@ namespace YtDlpTool.Domain.Security;
 public static class SigstoreRoots
 {
     // Current production Fulcio root certificate (PEM).
-    // Source: https://github.com/sigstore/root-signing — update on Sigstore key rotation.
-    // For Phase 3 we use a placeholder; Phase 10 task 10.x replaces with the real PEM and
-    // updates the Ed25519/SigstoreVerifier tests accordingly.
-    public const string FulcioRootPem = "-----BEGIN CERTIFICATE-----\n<replaced-in-phase-10>\n-----END CERTIFICATE-----\n";
+    // Source: https://github.com/sigstore/root-signing/blob/main/targets/fulcio_v1.crt.pem
+    // Update on Sigstore key rotation (announced via sigstore-announce / TUF).
+    public const string FulcioRootPem = @"-----BEGIN CERTIFICATE-----
+MIIB9zCCAXygAwIBAgIUALZNAPFdxHPwjeDloDwyYChAO/4wCgYIKoZIzj0EAwMw
+KjEVMBMGA1UEChMMc2lnc3RvcmUuZGV2MREwDwYDVQQDEwhzaWdzdG9yZTAeFw0y
+MTEwMDcxMzU2NTlaFw0zMTEwMDUxMzU2NThaMCoxFTATBgNVBAoTDHNpZ3N0b3Jl
+LmRldjERMA8GA1UEAxMIc2lnc3RvcmUwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAAT7
+XeFT4rb3PQGwS4IajtLk3/OlnpgangaBclYpsYBr5i+4ynB07ceb3LP0OIOZdxex
+X69c5iVuyJRQ+Hz05yi+UF3uBWAlHpiS5sh0+H2GHE7SXrk1EC5m1Tr19L9gg92j
+YzBhMA4GA1UdDwEB/wQEAwIBBjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBRY
+wB5fkUWlZql6zJChkyLQKsXF+jAfBgNVHSMEGDAWgBRYwB5fkUWlZql6zJChkyLQ
+KsXF+jAKBggqhkjOPQQDAwNpADBmAjEAj1nHeXZp+13NWBNa+EDsDP8G1WWg1tCM
+WP/WHPqpaVo0jhsweNFZgSs0eE7wYI4qAjEA2WB9ot98sIkoF3vZYdd3/VtWB5b9
+TNMea7Ix/stJ5TfcLLeABLE4BNJOsQ4vnBHJ
+-----END CERTIFICATE-----
+";
 
-    // Rekor signing key (DER public key) — same caveat.
-    public const string RekorPublicKeyPem = "-----BEGIN PUBLIC KEY-----\n<replaced-in-phase-10>\n-----END PUBLIC KEY-----\n";
+    // Rekor v1 signing key (ECDSA P-256 SubjectPublicKeyInfo, PEM-wrapped).
+    // Source: https://github.com/sigstore/root-signing/blob/main/targets/rekor.pub
+    public const string RekorPublicKeyPem = @"-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2G2Y+2tabdTV5BcGiBIx0a9fAFwr
+kBbmLSGtks4L3qX6yYY0zufBnhC8Ur/iy55GhWP/9A/bY2LhC30M9+RYtw==
+-----END PUBLIC KEY-----
+";
 }
