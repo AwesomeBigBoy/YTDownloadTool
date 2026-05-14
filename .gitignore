@@ -1,0 +1,10 @@
+bin/
+obj/
+*.user
+.vs/
+.superpowers/
+TestResults/
+*.binlog
+.update/
+.fake-yt-dlp/
+.claude/settings.local.json
