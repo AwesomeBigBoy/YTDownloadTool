@@ -26,6 +26,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _isParsing;
     [ObservableProperty] private string? _parseError;
     [ObservableProperty] private bool _showFirstHint;
+    [ObservableProperty] private QueueItemViewModel? _selectedQueueItem;
 
     public ObservableCollection<string> SelectedSubtitleLanguages { get; } = new();
     public ObservableCollection<QueueItemViewModel> Queue { get; }

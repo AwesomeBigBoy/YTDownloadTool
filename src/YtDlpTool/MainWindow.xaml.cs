@@ -66,8 +66,10 @@ public partial class MainWindow : Window
 
     public ICommand CancelSelectedQueueCommand => new RelayCommandAdapter(_ =>
     {
-        // No selectable queue item yet (Phase 8 keeps the list non-selectable).
-        // Reserved for future use; currently a no-op to satisfy the keybinding.
+        if (ViewModel?.SelectedQueueItem is { } item)
+        {
+            ViewModel.Host.Queue.Cancel(item.Id);
+        }
     });
 
     private sealed class RelayCommandAdapter : ICommand
