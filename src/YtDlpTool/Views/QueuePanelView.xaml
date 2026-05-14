@@ -4,11 +4,22 @@
              xmlns:vm="clr-namespace:YtDlpTool.ViewModels">
     <Border Style="{StaticResource GlassCard}" Padding="16,12">
         <StackPanel>
-            <TextBlock>
-                <Run Text="{StaticResource Queue.Title}" />
-                <Run x:Name="CountRun" Text=" (0)"
-                     Foreground="{StaticResource Brush.TextTertiary}" />
-            </TextBlock>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" VerticalAlignment="Center">
+                    <Run Text="{StaticResource Queue.Title}" />
+                    <Run x:Name="CountRun" Text=" (0)"
+                         Foreground="{StaticResource Brush.TextTertiary}" />
+                </TextBlock>
+                <Button Grid.Column="1"
+                        Content="清空已完成"
+                        Style="{StaticResource LinkButton}"
+                        Command="{Binding RemoveCompletedCommand}"
+                        VerticalAlignment="Center" />
+            </Grid>
             <ListBox x:Name="QueueItems" Margin="0,12,0,0"
                      ItemsSource="{Binding Queue}"
                      SelectedItem="{Binding SelectedQueueItem, Mode=TwoWay}"
@@ -56,10 +67,10 @@
                                                Text="{Binding DisplayMeta}" />
                                 </StackPanel>
                                 <Button Grid.Column="3"
-                                        Style="{StaticResource IconButton}"
+                                        Style="{StaticResource DangerIconButton}"
                                         Content="✕"
-                                        FontSize="13"
                                         Margin="8,0,0,0"
+                                        ToolTip="移除"
                                         Command="{Binding DataContext.CancelJobCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                         CommandParameter="{Binding Id}" />
                             </Grid>
