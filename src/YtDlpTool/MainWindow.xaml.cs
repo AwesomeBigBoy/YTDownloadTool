@@ -21,6 +21,7 @@ public partial class MainWindow : Window
             ?? throw new InvalidOperationException("AppHost not initialised");
         ViewModel = new MainViewModel(host);
         DataContext = ViewModel;
+        UpdateBanner.DataContext = host.BannerVm;
         Activated += (_, _) => UrlInput.RefreshPasteHint();
     }
 
