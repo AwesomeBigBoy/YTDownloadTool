@@ -1,0 +1,15 @@
+<UserControl x:Class="YtDlpTool.Views.QualityDropdown"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Style="{StaticResource GlassCard}" Padding="16,12">
+        <StackPanel>
+            <TextBlock Text="{StaticResource Quality.Label}"
+                       FontSize="12"
+                       Foreground="{StaticResource Brush.TextSecondary}"
+                       Margin="0,0,0,4" />
+            <ComboBox x:Name="QualityCombo" Height="36"
+                      SelectionChanged="OnSelectionChanged"
+                      DisplayMemberPath="Label" />
+        </StackPanel>
+    </Border>
+</UserControl>
