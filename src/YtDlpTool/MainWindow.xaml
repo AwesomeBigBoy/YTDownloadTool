@@ -52,8 +52,7 @@
                                VerticalAlignment="Center" />
                 </StackPanel>
                 <Button x:Name="SettingsButton" Grid.Column="2"
-                        Width="32" Height="32"
-                        Background="Transparent" BorderThickness="0"
+                        Style="{StaticResource IconButton}"
                         Content="⚙"
                         FontSize="16"
                         ToolTip="{StaticResource Settings.Title}"
