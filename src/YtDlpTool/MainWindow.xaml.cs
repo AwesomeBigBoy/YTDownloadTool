@@ -28,4 +28,9 @@ public partial class MainWindow : Window
     {
         MessageBox.Show("設定對話框將在 Phase 9 完成", "YtDlpTool");
     }
+
+    private void OnAddDownloadClicked(object sender, RoutedEventArgs e)
+    {
+        ViewModel?.AddDownloadCommand.Execute(null);
+    }
 }
