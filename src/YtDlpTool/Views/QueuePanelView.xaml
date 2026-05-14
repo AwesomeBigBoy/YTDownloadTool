@@ -53,7 +53,7 @@
                                     <TextBlock FontSize="11" Margin="0,4,0,0"
                                                Foreground="{StaticResource Brush.TextSecondary}"
                                                FontFamily="{StaticResource Font.Numeric}"
-                                               Text="{Binding Converter={StaticResource QueueMetaConverter}}" />
+                                               Text="{Binding DisplayMeta}" />
                                 </StackPanel>
                                 <Button Grid.Column="3"
                                         Style="{StaticResource IconButton}"
