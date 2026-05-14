@@ -12,6 +12,9 @@ public class UrlValidatorTests
     [InlineData("https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/watch?v=dQw4w9WgXcQ")]
     [InlineData("https://youtu.be/dQw4w9WgXcQ?t=42", "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42")]
     [InlineData("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLxxxx", "https://www.youtube.com/watch?v=dQw4w9WgXcQ")]
+    // Percent-encoded query values must NOT trigger the host-encoding check.
+    [InlineData("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL%20foo", "https://www.youtube.com/watch?v=dQw4w9WgXcQ")]
+    [InlineData("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42%73", "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42")]
     public void Validate_AcceptsAndCanonicalizes(string input, string expected)
     {
         var result = _v.Validate(input);
