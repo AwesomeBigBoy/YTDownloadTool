@@ -1,6 +1,6 @@
 # Phase 10 · CI/CD · Sigstore Signing · Release Pipeline
 
-**Goal:** Set up the GitHub Actions workflows for PR validation and tagged release. Tagged release fetches pinned external deps, builds NativeAOT exe, packs portable folder, signs `manifest.json` and individual binaries with Sigstore keyless, uploads to GitHub Releases. Also: bake real Sigstore root certificate into `SigstoreRoots`, write README with SmartScreen unblock instructions.
+**Goal:** Set up the GitHub Actions workflows for PR validation and tagged release. Tagged release fetches pinned external deps, builds a self-contained single-file WPF exe (NativeAOT was dropped in Phase 1 — WPF and NativeAOT are incompatible in .NET 8), packs portable folder, signs `manifest.json` and individual binaries with Sigstore keyless, uploads to GitHub Releases. Also: bake real Sigstore root certificate into `SigstoreRoots`, write README with SmartScreen unblock instructions.
 
 **Prerequisites:** Phase 9 complete (tag `phase-9-settings-complete`).
 
@@ -133,7 +133,7 @@ git commit -m "chore(build): PowerShell script to fetch + verify pinned external
 **Files:**
 - Create: `build/build-manifest.ps1`
 
-This script runs after the AOT publish, takes the built artifacts + fetched deps, computes hashes, and writes `manifest.json`.
+This script runs after the publish, takes the built artifacts + fetched deps, computes hashes, and writes `manifest.json`.
 
 - [ ] **Step 1: Write the script**
 
@@ -243,22 +243,24 @@ jobs:
       - name: Test
         run: dotnet test -c Release --no-build --verbosity normal
 
-      - name: AOT publish smoke
+      - name: Self-contained publish smoke
         run: dotnet publish src/YtDlpTool/YtDlpTool.csproj -c Release -r win-x64 --no-restore
 
-      - name: Verify AOT exe runs version probe
+      - name: Verify exe exists and size sane
         shell: pwsh
         run: |
           $exe = Get-ChildItem -Recurse -Path src/YtDlpTool/bin/Release -Filter YtDlpTool.exe | Select-Object -First 1
-          if (-not $exe) { throw 'AOT exe missing' }
-          Write-Host "AOT exe: $($exe.FullName) size=$([math]::Round($exe.Length / 1MB, 2))MB"
+          if (-not $exe) { throw 'YtDlpTool.exe missing' }
+          $sizeMb = [math]::Round($exe.Length / 1MB, 2)
+          if ($sizeMb -lt 30 -or $sizeMb -gt 120) { throw "Exe size $sizeMb MB outside expected 30-120 MB range" }
+          Write-Host "YtDlpTool.exe: $($exe.FullName) size=$sizeMb MB"
 ```
 
 - [ ] **Step 2: Commit**
 
 ```powershell
 git add .github/workflows/pr-check.yml
-git commit -m "ci: PR check workflow (restore, build, test, AOT smoke)"
+git commit -m "ci: PR check workflow (restore, build, test, publish smoke)"
 ```
 
 ---
@@ -326,7 +328,7 @@ jobs:
       - name: Test
         run: dotnet test -c Release
 
-      - name: AOT publish
+      - name: Self-contained publish
         run: dotnet publish src/YtDlpTool/YtDlpTool.csproj -c Release -r win-x64 --no-restore
 
       - name: Fetch external deps
@@ -683,7 +685,7 @@ git push --tags
 ## Project complete
 
 All ten phases done. The repo now contains:
-- A working, AOT-compiled Windows YouTube downloader (~15 MB exe)
+- A working, self-contained single-file Windows YouTube downloader (~75 MB exe; NativeAOT was the original target but is incompatible with WPF on .NET 8)
 - 80+ unit tests across Domain, Security, Process layers
 - Portable zip distribution with Sigstore-signed manifest + per-file signatures
 - One-click in-app update with rollback safety
