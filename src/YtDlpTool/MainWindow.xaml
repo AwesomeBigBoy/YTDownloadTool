@@ -61,6 +61,7 @@
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,16,0,0">
                 <StackPanel x:Name="FormHost">
                     <views:UrlInputView x:Name="UrlInput" Margin="0,0,0,16" />
+                    <views:FormatSelectorView Margin="0,0,0,16" />
                 </StackPanel>
             </ScrollViewer>
         </Grid>

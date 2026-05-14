@@ -1,0 +1,14 @@
+<UserControl x:Class="YtDlpTool.Views.FormatSelectorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Style="{StaticResource GlassCard}">
+        <UniformGrid Columns="3" Rows="1">
+            <Button x:Name="AudioBtn" Tag="AudioOnly" Click="OnModeClicked"
+                    Style="{StaticResource SegmentButtonStyle}" Content="🎵 純音訊" />
+            <Button x:Name="BothBtn"  Tag="AudioAndVideo" Click="OnModeClicked"
+                    Style="{StaticResource SegmentButtonStyle}" Content="🎬 影音合併" />
+            <Button x:Name="VideoBtn" Tag="VideoOnly" Click="OnModeClicked"
+                    Style="{StaticResource SegmentButtonStyle}" Content="🎥 純影像" />
+        </UniformGrid>
+    </Border>
+</UserControl>
