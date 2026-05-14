@@ -84,4 +84,127 @@ public sealed class YtDlpRunner
             Formats: formats,
             Subtitles: subtitles);
     }
+
+    public async Task<DownloadResult> DownloadAsync(
+        DownloadRequest request,
+        IProgress<ProgressReport>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var argList = new List<string>();
+        argList.AddRange(BuildFormatArgs(request));
+        argList.AddRange(new[]
+        {
+            "--newline",
+            "--progress-template",
+            "[download] {\"percent\":%(progress._percent_str)s,\"speed\":\"%(progress._speed_str)s\",\"eta\":\"%(progress._eta_str)s\"}",
+            "--no-playlist",
+            "--no-warnings",
+            "--output",
+            BuildOutputTemplate(request),
+        });
+        argList.AddRange(BuildSubtitleArgs(request));
+        argList.AddRange(BuildClipArgs(request));
+        if (request.EmbedThumbnail) argList.Add("--embed-thumbnail");
+        argList.Add("--");
+        argList.Add(request.Url);
+
+        var args = new ProcessStartArguments(
+            ExecutablePath: _executable,
+            Arguments: argList);
+
+        string? finalPath = null;
+        var exit = await ProcessSandbox.RunAsync(args,
+            onStdout: line => ParseProgress(line.Text, progress, ref finalPath),
+            cancellationToken: cancellationToken);
+
+        if (exit.Cancelled) return new DownloadResult(false, null, exit.Stderr, true);
+        if (exit.ExitCode != 0) return new DownloadResult(false, null, exit.Stderr, false);
+        return new DownloadResult(true, finalPath, null, false);
+    }
+
+    private static IEnumerable<string> BuildFormatArgs(DownloadRequest r)
+    {
+        return r.Mode switch
+        {
+            DownloadMode.AudioOnly =>
+                new[] { "-f", r.ChosenFormat.FormatId, "-x", "--audio-format", InferAudioFormat(r.ChosenFormat) },
+            DownloadMode.VideoOnly =>
+                new[] { "-f", r.ChosenFormat.FormatId },
+            DownloadMode.AudioAndVideo =>
+                new[] { "-f", $"{r.ChosenFormat.FormatId}+bestaudio", "--merge-output-format", "mp4" },
+            _ => Array.Empty<string>()
+        };
+    }
+
+    private static string InferAudioFormat(VideoFormat f) =>
+        (f.Extension is "m4a" or "mp4") ? "m4a" : "mp3";
+
+    private static IEnumerable<string> BuildSubtitleArgs(DownloadRequest r)
+    {
+        if (r.Mode == DownloadMode.AudioOnly) yield break;
+        if (r.SubtitleLanguageCodes.Count == 0) yield break;
+        yield return "--write-subs";
+        yield return "--write-auto-subs";
+        yield return "--sub-langs";
+        yield return string.Join(',', r.SubtitleLanguageCodes);
+        yield return "--embed-subs";
+    }
+
+    private static IEnumerable<string> BuildClipArgs(DownloadRequest r)
+    {
+        if (r.ClipRange is null) yield break;
+        yield return "--download-sections";
+        yield return r.ClipRange.ToYtDlpFormat();
+        yield return "--force-keyframes-at-cuts";
+    }
+
+    private static string BuildOutputTemplate(DownloadRequest r)
+    {
+        return Path.Combine(r.SaveDirectory, r.SanitizedFileStem + ".%(ext)s");
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex DestinationRegex =
+        new(@"\[download\]\s+Destination:\s*(?<path>.+)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+    private static readonly System.Text.RegularExpressions.Regex ProgressJsonRegex =
+        new(@"\{""percent""\s*:\s*""?(?<pct>[\d.]+)%?""?[^}]*""speed""\s*:\s*""(?<speed>[^""]+)""[^}]*""eta""\s*:\s*""(?<eta>[^""]+)""\}",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static void ParseProgress(string line, IProgress<ProgressReport>? progress, ref string? finalPath)
+    {
+        var destMatch = DestinationRegex.Match(line);
+        if (destMatch.Success) finalPath = destMatch.Groups["path"].Value.Trim();
+
+        if (progress is null) return;
+        var m = ProgressJsonRegex.Match(line);
+        if (!m.Success) return;
+        if (!double.TryParse(m.Groups["pct"].Value, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var pct)) return;
+        var bps = ParseSpeed(m.Groups["speed"].Value);
+        var eta = ParseEta(m.Groups["eta"].Value);
+        progress.Report(new ProgressReport(pct, bps, eta));
+    }
+
+    private static long? ParseSpeed(string s)
+    {
+        // "5.2MiB/s" / "512KiB/s" / "Unknown"
+        var match = System.Text.RegularExpressions.Regex.Match(s,
+            @"(?<v>[\d.]+)\s*(?<u>[KMGT]?i?B)/s", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!match.Success) return null;
+        if (!double.TryParse(match.Groups["v"].Value, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var v)) return null;
+        var unit = match.Groups["u"].Value.ToUpperInvariant();
+        return (long)(v * unit switch
+        {
+            "KIB" => 1024.0, "KB" => 1000.0,
+            "MIB" => 1024.0 * 1024, "MB" => 1_000_000.0,
+            "GIB" => 1024.0 * 1024 * 1024, "GB" => 1_000_000_000.0,
+            _ => 1.0
+        });
+    }
+
+    private static TimeSpan? ParseEta(string s)
+    {
+        if (TimeSpan.TryParse(s, out var t)) return t;
+        return null;
+    }
 }
