@@ -1,0 +1,28 @@
+<Window x:Class="YtDlpTool.Dialogs.FilenameConflictDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="檔案已存在" Width="460" Height="220"
+        WindowStartupLocation="CenterOwner" WindowStyle="ToolWindow" ResizeMode="NoResize"
+        Background="#F8F4F0" FontFamily="{StaticResource Font.Default}">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" x:Name="HeadlineText"
+                   FontWeight="SemiBold" FontSize="15"
+                   TextTrimming="CharacterEllipsis" />
+        <TextBlock Grid.Row="1" Margin="0,12,0,0" TextWrapping="Wrap"
+                   Foreground="{StaticResource Brush.TextSecondary}">
+            <Run x:Name="PathRun" />
+        </TextBlock>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="取消" Width="80" Margin="0,0,8,0" Click="OnCancel" />
+            <Button Content="覆蓋" Width="80" Margin="0,0,8,0" Click="OnOverwrite" />
+            <Button x:Name="RenameButton" Content="自動改名" Width="100"
+                    Background="{StaticResource Brush.Accent}"
+                    Foreground="White" Click="OnRename" IsDefault="True" />
+        </StackPanel>
+    </Grid>
+</Window>
