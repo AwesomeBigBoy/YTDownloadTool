@@ -21,6 +21,7 @@ public partial class MainWindow : Window
             ?? throw new InvalidOperationException("AppHost not initialised");
         ViewModel = new MainViewModel(host);
         DataContext = ViewModel;
+        Activated += (_, _) => UrlInput.RefreshPasteHint();
     }
 
     private void OnSettingsClicked(object sender, RoutedEventArgs e)
