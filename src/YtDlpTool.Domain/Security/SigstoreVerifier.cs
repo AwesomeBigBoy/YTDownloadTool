@@ -71,6 +71,11 @@ public static class SigstoreVerifier
         if (integratedAt < leaf.NotBefore || integratedAt > leaf.NotAfter)
             return SigstoreVerificationResult.Fail("簽章時間不在憑證有效期內");
 
+        // Verify Rekor SignedEntryTimestamp — proves Rekor accepted this entry at
+        // integratedTime; otherwise IntegratedTime is attacker-controlled.
+        var setCheck = ValidateRekorSet(bundle.VerificationMaterial.TlogEntries[0], integratedUnix);
+        if (!setCheck.IsValid) return setCheck;
+
         var chainCheck = ValidateChain(leaf, options.TrustedRootPem);
         if (!chainCheck.IsValid) return chainCheck;
 
@@ -206,6 +211,54 @@ public static class SigstoreVerifier
         return ok
             ? SigstoreVerificationResult.Ok()
             : SigstoreVerificationResult.Fail("簽章驗證失敗");
+    }
+
+    private static SigstoreVerificationResult ValidateRekorSet(SigstoreTlogEntry tlog, long integratedUnix)
+    {
+        if (tlog.InclusionPromise is null || string.IsNullOrWhiteSpace(tlog.InclusionPromise.SignedEntryTimestamp))
+            return SigstoreVerificationResult.Fail("缺少 Rekor 簽署時間戳");
+        if (tlog.CanonicalizedBody is null || string.IsNullOrWhiteSpace(tlog.CanonicalizedBody.Body))
+            return SigstoreVerificationResult.Fail("缺少 Rekor canonicalized body");
+
+        // Rekor signs canonicalised JSON of {body, integratedTime, logID, logIndex}.
+        // Keys sorted alphabetically; integers unquoted.
+        var setPayload =
+            $"{{\"body\":\"{tlog.CanonicalizedBody.Body}\",\"integratedTime\":{integratedUnix}," +
+            $"\"logID\":\"{tlog.LogId.KeyId}\",\"logIndex\":{tlog.LogIndex}}}";
+        var setBytes = Encoding.UTF8.GetBytes(setPayload);
+        byte[] setSignature;
+        try { setSignature = Convert.FromBase64String(tlog.InclusionPromise.SignedEntryTimestamp); }
+        catch { return SigstoreVerificationResult.Fail("Rekor SET 編碼錯誤"); }
+
+        try
+        {
+            var rekorKeyBytes = ExtractPublicKeyBytesFromPem(SigstoreRoots.RekorPublicKeyPem);
+            if (rekorKeyBytes is null)
+                return SigstoreVerificationResult.Fail("Rekor 公鑰格式錯誤");
+
+            // Rekor uses ECDSA P-256 (the "rekor.pub" file is a SubjectPublicKeyInfo).
+            using var rekorEcdsa = ECDsa.Create();
+            rekorEcdsa.ImportSubjectPublicKeyInfo(rekorKeyBytes, out _);
+            if (!rekorEcdsa.VerifyData(setBytes, setSignature,
+                    HashAlgorithmName.SHA256,
+                    DSASignatureFormat.Rfc3279DerSequence))
+                return SigstoreVerificationResult.Fail("Rekor SET 驗證失敗");
+        }
+        catch (Exception ex)
+        {
+            return SigstoreVerificationResult.Fail($"Rekor 驗證錯誤：{ex.Message}");
+        }
+        return SigstoreVerificationResult.Ok();
+    }
+
+    private static byte[]? ExtractPublicKeyBytesFromPem(string pem)
+    {
+        if (string.IsNullOrWhiteSpace(pem) || pem.Contains("replaced-in-phase"))
+            return null;
+        var lines = pem.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        var body = string.Concat(lines.Where(l => !l.StartsWith("---")));
+        try { return Convert.FromBase64String(body); }
+        catch { return null; }
     }
 
     private static string NormalizeDigest(string maybeBase64OrHex)
