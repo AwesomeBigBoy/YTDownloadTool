@@ -1,98 +1,192 @@
 <Window x:Class="YtDlpTool.Dialogs.SettingsDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:YtDlpTool.Views"
         Title="{StaticResource Settings.Title}"
-        Width="560" Height="640"
+        Width="640" Height="720"
         WindowStartupLocation="CenterOwner"
-        WindowStyle="ToolWindow"
+        WindowStyle="SingleBorderWindow"
         ResizeMode="NoResize"
-        Background="#F4F2EE"
+        Background="#FFF8F0"
         FontFamily="{StaticResource Font.Default}"
         FontSize="14">
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+    <Grid>
+        <!-- Faint aurora layer behind the cards for continuity with MainWindow -->
+        <views:AuroraBackground Opacity="0.4" />
 
-        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
-            <StackPanel>
-                <!-- Download -->
-                <TextBlock Text="{StaticResource Settings.SectionDownload}" FontWeight="SemiBold" />
-                <Grid Margin="0,8,0,16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="180" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition />
-                        <RowDefinition />
-                    </Grid.RowDefinitions>
+        <Grid Margin="28,24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="{StaticResource Settings.DefaultSaveDir}" VerticalAlignment="Center" />
-                    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal">
-                        <TextBlock x:Name="DefaultDirText" Width="280" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                        <Button Content="{StaticResource Save.Browse}" Click="OnBrowseDefaultDir" Margin="8,0,0,0" />
-                    </StackPanel>
+            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <!-- Download section -->
+                    <Border Style="{StaticResource GlassCard}" Margin="0,0,0,16" Padding="20,16">
+                        <StackPanel>
+                            <TextBlock Text="{StaticResource Settings.SectionDownload}"
+                                       FontSize="16" FontWeight="SemiBold"
+                                       Foreground="{StaticResource Brush.TextPrimary}" />
+                            <Rectangle Height="1" Fill="{StaticResource Brush.GlassBorder}" Margin="0,8,0,12" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="200" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="{StaticResource Settings.Concurrency}" VerticalAlignment="Center" />
-                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal">
-                        <Slider x:Name="ConcurrencySlider" Width="200" Minimum="1" Maximum="10" TickPlacement="BottomRight"
-                                IsSnapToTickEnabled="True" TickFrequency="1" />
-                        <TextBlock Margin="8,0,0,0" Text="{Binding Value, ElementName=ConcurrencySlider}" VerticalAlignment="Center" />
-                    </StackPanel>
-                </Grid>
+                                <TextBlock Grid.Row="0" Grid.Column="0"
+                                           Text="{StaticResource Settings.DefaultSaveDir}"
+                                           Foreground="{StaticResource Brush.TextSecondary}"
+                                           VerticalAlignment="Center"
+                                           Margin="0,8" />
+                                <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="0,8">
+                                    <TextBlock x:Name="DefaultDirText" Width="260"
+                                               Foreground="{StaticResource Brush.TextPrimary}"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                    <Button Content="{StaticResource Save.Browse}"
+                                            Style="{StaticResource LinkButton}"
+                                            Click="OnBrowseDefaultDir"
+                                            Margin="8,0,0,0" />
+                                </StackPanel>
 
-                <!-- Update -->
-                <TextBlock Text="{StaticResource Settings.SectionUpdate}" FontWeight="SemiBold" Margin="0,8,0,0" />
-                <StackPanel Margin="0,8,0,16">
-                    <ComboBox x:Name="FrequencyCombo" Width="220" HorizontalAlignment="Left">
-                        <ComboBoxItem Content="每次啟動" Tag="EveryLaunch" />
-                        <ComboBoxItem Content="每日"    Tag="Daily" />
-                        <ComboBoxItem Content="每週"    Tag="Weekly" />
-                        <ComboBoxItem Content="每月"    Tag="Monthly" />
-                        <ComboBoxItem Content="不檢查"  Tag="Never" />
-                    </ComboBox>
-                    <CheckBox x:Name="EnableYtDlpUpdates" Content="{StaticResource Settings.YtDlpUpdates}" Margin="0,8,0,0" />
-                    <CheckBox x:Name="EnableFfmpegUpdates" Content="{StaticResource Settings.FfmpegUpdates}" Margin="0,4,0,0" />
+                                <TextBlock Grid.Row="1" Grid.Column="0"
+                                           Text="{StaticResource Settings.Concurrency}"
+                                           Foreground="{StaticResource Brush.TextSecondary}"
+                                           VerticalAlignment="Center"
+                                           Margin="0,8" />
+                                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,8">
+                                    <Slider x:Name="ConcurrencySlider" Width="240" Minimum="1" Maximum="10"
+                                            TickPlacement="BottomRight"
+                                            IsSnapToTickEnabled="True" TickFrequency="1"
+                                            VerticalAlignment="Center" />
+                                    <TextBlock Margin="12,0,0,0"
+                                               FontFamily="{StaticResource Font.Numeric}"
+                                               Foreground="{StaticResource Brush.TextPrimary}"
+                                               Text="{Binding Value, ElementName=ConcurrencySlider}"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Update section -->
+                    <Border Style="{StaticResource GlassCard}" Margin="0,0,0,16" Padding="20,16">
+                        <StackPanel>
+                            <TextBlock Text="{StaticResource Settings.SectionUpdate}"
+                                       FontSize="16" FontWeight="SemiBold"
+                                       Foreground="{StaticResource Brush.TextPrimary}" />
+                            <Rectangle Height="1" Fill="{StaticResource Brush.GlassBorder}" Margin="0,8,0,12" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="200" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0"
+                                           Text="{StaticResource Settings.CheckFrequency}"
+                                           Foreground="{StaticResource Brush.TextSecondary}"
+                                           VerticalAlignment="Center"
+                                           Margin="0,8" />
+                                <ComboBox x:Name="FrequencyCombo" Grid.Row="0" Grid.Column="1"
+                                          Width="240" HorizontalAlignment="Left" Margin="0,8">
+                                    <ComboBoxItem Content="每次啟動" Tag="EveryLaunch" />
+                                    <ComboBoxItem Content="每日"     Tag="Daily" />
+                                    <ComboBoxItem Content="每週"     Tag="Weekly" />
+                                    <ComboBoxItem Content="每月"     Tag="Monthly" />
+                                    <ComboBoxItem Content="不檢查"   Tag="Never" />
+                                </ComboBox>
+
+                                <CheckBox x:Name="EnableYtDlpUpdates" Grid.Row="1" Grid.Column="1"
+                                          Content="{StaticResource Settings.YtDlpUpdates}"
+                                          Margin="0,12,0,0" />
+                                <CheckBox x:Name="EnableFfmpegUpdates" Grid.Row="2" Grid.Column="1"
+                                          Content="{StaticResource Settings.FfmpegUpdates}"
+                                          Margin="0,8,0,0" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- UI section -->
+                    <Border Style="{StaticResource GlassCard}" Margin="0,0,0,16" Padding="20,16">
+                        <StackPanel>
+                            <TextBlock Text="{StaticResource Settings.SectionUi}"
+                                       FontSize="16" FontWeight="SemiBold"
+                                       Foreground="{StaticResource Brush.TextPrimary}" />
+                            <Rectangle Height="1" Fill="{StaticResource Brush.GlassBorder}" Margin="0,8,0,12" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="200" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="0"
+                                           Text="{StaticResource Settings.Language}"
+                                           Foreground="{StaticResource Brush.TextSecondary}"
+                                           VerticalAlignment="Center" Margin="0,8" />
+                                <ComboBox Grid.Row="0" Grid.Column="1"
+                                          SelectedIndex="0" Width="240" HorizontalAlignment="Left" Margin="0,8">
+                                    <ComboBoxItem Content="繁體中文" />
+                                </ComboBox>
+                                <TextBlock Grid.Row="1" Grid.Column="0"
+                                           Text="{StaticResource Settings.Theme}"
+                                           Foreground="{StaticResource Brush.TextSecondary}"
+                                           VerticalAlignment="Center" Margin="0,8" />
+                                <ComboBox x:Name="ThemeCombo" Grid.Row="1" Grid.Column="1"
+                                          Width="240" HorizontalAlignment="Left" Margin="0,8">
+                                    <ComboBoxItem Content="跟隨系統" Tag="System" />
+                                    <ComboBoxItem Content="亮色"     Tag="Light" />
+                                    <ComboBoxItem Content="深色"     Tag="Dark" />
+                                </ComboBox>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Advanced section -->
+                    <Border Style="{StaticResource GlassCard}" Margin="0,0,0,16" Padding="20,16">
+                        <StackPanel>
+                            <TextBlock Text="{StaticResource Settings.SectionAdvanced}"
+                                       FontSize="16" FontWeight="SemiBold"
+                                       Foreground="{StaticResource Brush.TextPrimary}" />
+                            <Rectangle Height="1" Fill="{StaticResource Brush.GlassBorder}" Margin="0,8,0,12" />
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="{StaticResource Settings.OpenLogs}"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Click="OnOpenLogs" Margin="0,0,8,0" />
+                                <Button Content="{StaticResource Settings.OpenDownloads}"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Click="OnOpenDownloads" Margin="0,0,8,0" />
+                                <Button Content="{StaticResource Settings.About}"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Click="OnAbout" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
+            </ScrollViewer>
 
-                <!-- UI -->
-                <TextBlock Text="{StaticResource Settings.SectionUi}" FontWeight="SemiBold" Margin="0,8,0,0" />
-                <Grid Margin="0,8,0,16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="180" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition />
-                        <RowDefinition />
-                    </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="{StaticResource Settings.Language}" VerticalAlignment="Center" />
-                    <ComboBox Grid.Row="0" Grid.Column="1" SelectedIndex="0" Width="200" HorizontalAlignment="Left">
-                        <ComboBoxItem Content="繁體中文" />
-                    </ComboBox>
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="{StaticResource Settings.Theme}" VerticalAlignment="Center" />
-                    <ComboBox x:Name="ThemeCombo" Grid.Row="1" Grid.Column="1" Width="200" HorizontalAlignment="Left">
-                        <ComboBoxItem Content="跟隨系統" Tag="System" />
-                        <ComboBoxItem Content="亮色"    Tag="Light" />
-                        <ComboBoxItem Content="深色"    Tag="Dark" />
-                    </ComboBox>
-                </Grid>
-
-                <!-- Advanced -->
-                <TextBlock Text="{StaticResource Settings.SectionAdvanced}" FontWeight="SemiBold" Margin="0,8,0,0" />
-                <StackPanel Margin="0,8,0,16" Orientation="Horizontal">
-                    <Button Content="{StaticResource Settings.OpenLogs}" Click="OnOpenLogs" Margin="0,0,8,0" />
-                    <Button Content="{StaticResource Settings.OpenDownloads}" Click="OnOpenDownloads" Margin="0,0,8,0" />
-                    <Button Content="{StaticResource Settings.About}" Click="OnAbout" />
-                </StackPanel>
+            <StackPanel Grid.Row="1" Orientation="Horizontal"
+                        HorizontalAlignment="Right" Margin="0,8,0,0">
+                <Button Content="取消"
+                        Style="{StaticResource SecondaryButton}"
+                        Click="OnCancel" MinWidth="88" Margin="0,0,8,0" />
+                <Button Content="儲存"
+                        Style="{StaticResource PrimaryButton}"
+                        Click="OnSave" MinWidth="96" Height="36" Padding="14,0" />
             </StackPanel>
-        </ScrollViewer>
-
-        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-            <Button Content="取消" Click="OnCancel" Width="80" Margin="0,0,8,0" />
-            <Button Content="儲存" Click="OnSave" Width="80" Background="{StaticResource Brush.Accent}" Foreground="White" />
-        </StackPanel>
+        </Grid>
     </Grid>
 </Window>
