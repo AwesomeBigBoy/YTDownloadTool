@@ -18,7 +18,10 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <InvariantGlobalization>false</InvariantGlobalization>
-    <RestoreLockedMode>true</RestoreLockedMode>
+    <!-- RestoreLockedMode intentionally NOT set. Implicit deps like Microsoft.NET.ILLink.Tasks
+         change patch versions between .NET SDK servicing releases, which makes the lock file
+         inconsistent across machines. The lock file is still generated for diagnostic
+         purposes via RestorePackagesWithLockFile. -->
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
