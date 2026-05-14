@@ -1,0 +1,28 @@
+<UserControl x:Class="YtDlpTool.Views.SaveLocationView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Style="{StaticResource GlassCard}" Padding="16,10">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="{StaticResource Save.Label}"
+                       Foreground="{StaticResource Brush.TextSecondary}"
+                       FontSize="12" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" x:Name="PathLabel"
+                       Margin="12,0,0,0"
+                       TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center"
+                       Foreground="{StaticResource Brush.TextPrimary}"
+                       ToolTip="{Binding ElementName=PathLabel, Path=Text}" />
+            <Button Grid.Column="2"
+                    Content="{StaticResource Save.Browse}"
+                    Background="Transparent" BorderThickness="0"
+                    Foreground="{StaticResource Brush.Accent}"
+                    Cursor="Hand"
+                    Click="OnBrowseClicked" />
+        </Grid>
+    </Border>
+</UserControl>
