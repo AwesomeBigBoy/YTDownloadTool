@@ -4,10 +4,10 @@
 
 **Goal:** Build a lightweight Windows YouTube downloader with Aurora Glass UI, hardened security model, and one-click Sigstore-verified updates, shipped as a portable folder.
 
-**Architecture:** Three-layer C# .NET 8 application — WPF UI (NativeAOT-compiled exe), pure-C# Domain library, and Process layer wrapping `yt-dlp.exe`/`ffmpeg.exe` subprocesses. Update signatures use Sigstore keyless. Persistent state lives under `%LOCALAPPDATA%\YtDlpTool`.
+**Architecture:** Three-layer C# .NET 8 application — WPF UI (self-contained single-file exe), pure-C# Domain library, and Process layer wrapping `yt-dlp.exe`/`ffmpeg.exe` subprocesses. Update signatures use Sigstore keyless. Persistent state lives under `%LOCALAPPDATA%\YtDlpTool`. (NativeAOT was the original target but WPF and NativeAOT are mutually exclusive in .NET 8 — see Phase 1 for details.)
 
 **Tech Stack:**
-- .NET 8 SDK, WPF, NativeAOT
+- .NET 8 SDK, WPF, self-contained single-file publish (compressed)
 - xUnit (test framework)
 - `System.Text.Json` (source generator), `CommunityToolkit.Mvvm`, `CommunityToolkit.WinUI.Notifications`, `NSec.Cryptography`
 - GitHub Actions + sigstore-action for CI/CD
@@ -22,7 +22,7 @@ Execute phases in order. Each phase ends in a green test run + commit. Subsequen
 
 | Phase | File | Outcome |
 |---|---|---|
-| 1 | [phase-1-skeleton.md](2026-05-14-yt-dlp-tool-phase-1-skeleton.md) | Solution, projects, NativeAOT publish, packages locked, CI placeholder |
+| 1 | [phase-1-skeleton.md](2026-05-14-yt-dlp-tool-phase-1-skeleton.md) | Solution, projects, self-contained single-file publish, packages locked, CI placeholder |
 | 2 | [phase-2-domain.md](2026-05-14-yt-dlp-tool-phase-2-domain.md) | Models, `UrlValidator`, `FileNameSanitizer`, `TimeRangeValidator`, `ConfigStore`, `AppPaths`, `AppLogger` |
 | 3 | [phase-3-security.md](2026-05-14-yt-dlp-tool-phase-3-security.md) | `Sha256Verifier`, `Ed25519Verifier`, `SigstoreVerifier` with test vectors |
 | 4 | [phase-4-process.md](2026-05-14-yt-dlp-tool-phase-4-process.md) | `ProcessSandbox`, `YtDlpRunner`, `FfmpegRunner`, `ErrorMapper`; FakeYtDlp test helper |
@@ -40,8 +40,8 @@ Execute phases in order. Each phase ends in a green test run + commit. Subsequen
 - **TDD red-green-commit** for all Domain, Security, and Process layer code. UI code follows manual verification (run app, check behaviour) since WPF UI testing is brittle.
 - **Commit after every green test** or every completed UI view. Small commits, conventional commit messages (`feat:`, `fix:`, `test:`, `refactor:`, `chore:`).
 - **Never modify a previous phase's files unless explicitly directed.** If you find a bug in earlier phase code, raise it before fixing.
-- **No reflection-heavy libraries.** Anything that breaks NativeAOT (e.g., Newtonsoft.Json, MahApps) is rejected.
-- **NativeAOT smoke-test after every phase.** Run `dotnet publish -c Release -r win-x64 --self-contained true /p:PublishAot=true` from `src/YtDlpTool` and verify exit code 0. Failures here are usually reflection issues caught early.
+- **No reflection-heavy libraries.** Anything that bloats the binary or risks compatibility (e.g., Newtonsoft.Json, MahApps) is rejected. Even though NativeAOT was dropped, the design principle remains — System.Text.Json source generators, etc.
+- **Publish smoke-test after every phase.** Run `dotnet publish src/YtDlpTool/YtDlpTool.csproj -c Release -r win-x64` and verify exit code 0 + exe at expected path. Failures here surface broken references or codegen issues early. (Originally specified as a NativeAOT publish — Phase 1 discovered that WPF + NativeAOT is mutually exclusive in .NET 8. Self-contained single-file with compression is the actual mechanism.)
 - **All user-facing strings live in `Strings.zh-TW.xaml`.** Never hardcode Chinese strings in `.cs` or non-resource `.xaml` files.
 
 ---

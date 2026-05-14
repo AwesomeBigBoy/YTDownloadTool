@@ -529,14 +529,14 @@ public partial class SettingsDialog : Window
 
     private void OnBrowseDefaultDir(object sender, RoutedEventArgs e)
     {
-        using var dlg = new System.Windows.Forms.FolderBrowserDialog
+        var dlg = new Microsoft.Win32.OpenFolderDialog
         {
-            Description = "選擇預設儲存資料夾", UseDescriptionForTitle = true,
-            SelectedPath = Directory.Exists(_selectedSaveDir) ? _selectedSaveDir : ""
+            Title = "選擇預設儲存資料夾",
+            InitialDirectory = Directory.Exists(_selectedSaveDir) ? _selectedSaveDir : ""
         };
-        if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+        if (dlg.ShowDialog() == true)
         {
-            _selectedSaveDir = dlg.SelectedPath;
+            _selectedSaveDir = dlg.FolderName;
             DefaultDirText.Text = _selectedSaveDir;
         }
     }

@@ -990,16 +990,15 @@ public partial class SaveLocationView : UserControl
     private void OnBrowseClicked(object sender, RoutedEventArgs e)
     {
         if (Vm is null) return;
-        using var dlg = new System.Windows.Forms.FolderBrowserDialog
+        var dlg = new Microsoft.Win32.OpenFolderDialog
         {
-            Description = "選擇下載資料夾",
-            UseDescriptionForTitle = true,
-            SelectedPath = Directory.Exists(Vm.SaveDirectory) ? Vm.SaveDirectory : ""
+            Title = "選擇下載資料夾",
+            InitialDirectory = Directory.Exists(Vm.SaveDirectory) ? Vm.SaveDirectory : ""
         };
-        if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK && !string.IsNullOrEmpty(dlg.SelectedPath))
+        if (dlg.ShowDialog() == true && !string.IsNullOrEmpty(dlg.FolderName))
         {
-            Vm.SaveDirectory = dlg.SelectedPath;
-            Vm.Host.Config.DefaultSaveDirectory = dlg.SelectedPath;
+            Vm.SaveDirectory = dlg.FolderName;
+            Vm.Host.Config.DefaultSaveDirectory = dlg.FolderName;
             Vm.Host.ConfigStore.Save(Vm.Host.Config);
         }
     }
