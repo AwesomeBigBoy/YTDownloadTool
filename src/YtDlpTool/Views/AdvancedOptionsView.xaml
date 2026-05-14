@@ -14,17 +14,21 @@
             </Expander.Header>
             <StackPanel Margin="0,12,0,0">
                 <!-- Subtitles -->
-                <TextBlock Text="{StaticResource Advanced.SubtitlesLabel}"
-                           FontSize="12"
-                           Foreground="{StaticResource Brush.TextSecondary}"
-                           Margin="0,0,0,4" />
-                <ItemsControl x:Name="SubtitlesList">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <WrapPanel />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                </ItemsControl>
+                <Border x:Name="SubtitleSection" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="{StaticResource Advanced.SubtitlesLabel}"
+                                   FontSize="12"
+                                   Foreground="{StaticResource Brush.TextSecondary}"
+                                   Margin="0,0,0,4" />
+                        <ItemsControl x:Name="SubtitlesList">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
 
                 <!-- Clip -->
                 <TextBlock Text="{StaticResource Advanced.ClipLabel}"
