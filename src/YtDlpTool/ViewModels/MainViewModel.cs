@@ -56,7 +56,30 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void CancelJob(Guid id) => _host.Queue.Cancel(id);
+    private void CancelJob(Guid id)
+    {
+        var item = Queue.FirstOrDefault(q => q.Id == id);
+        if (item is null) return;
+        if (item.Status is JobStatus.Completed or JobStatus.Failed or JobStatus.Cancelled)
+        {
+            // Already terminal — the row is now a 'remove from list' affordance.
+            Queue.Remove(item);
+        }
+        else
+        {
+            // Active job — kick off cancellation; OnQueueEvent will remove the row
+            // once JobCancelledEvent propagates back from the queue.
+            _host.Queue.Cancel(id);
+        }
+    }
+
+    [RelayCommand]
+    private void RemoveCompleted()
+    {
+        var terminal = Queue.Where(q =>
+            q.Status is JobStatus.Completed or JobStatus.Failed or JobStatus.Cancelled).ToList();
+        foreach (var item in terminal) Queue.Remove(item);
+    }
 
     private void OnQueueEvent(object? sender, QueueEvent evt)
     {
@@ -110,7 +133,13 @@ public partial class MainViewModel : ObservableObject
                     break;
                 case JobCancelledEvent e:
                     var x = Find(e.Job.Id);
-                    if (x is not null) x.SetStatus(JobStatus.Cancelled);
+                    if (x is not null)
+                    {
+                        x.SetStatus(JobStatus.Cancelled);
+                        // User clicked ✕ on an active row — surface this as 'gone from the
+                        // list' so the affordance behaves the same as removing a terminal item.
+                        Queue.Remove(x);
+                    }
                     break;
             }
         });
