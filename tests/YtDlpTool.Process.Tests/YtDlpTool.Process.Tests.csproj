@@ -17,5 +17,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\YtDlpTool.Domain\YtDlpTool.Domain.csproj" />
     <ProjectReference Include="..\..\src\YtDlpTool.Process\YtDlpTool.Process.csproj" />
+    <ProjectReference Include="..\FakeYtDlp\FakeYtDlp.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
 </Project>
