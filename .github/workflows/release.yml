@@ -112,21 +112,38 @@ jobs:
           "zipPath=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "zipName=$zipName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          $tag   = "${{ steps.ver.outputs.tag }}"
           $stage = "${{ steps.portable.outputs.stageDir }}"
-          gh release create "${{ steps.ver.outputs.tag }}" `
-            "$stage/manifest.json" `
-            "$stage/manifest.json.sigstore" `
-            "$stage/YtDlpTool.exe" `
-            "$stage/YtDlpTool.exe.sigstore" `
-            "$stage/bin/yt-dlp.exe" `
-            "$stage/yt-dlp.exe.sigstore" `
-            "$stage/bin/ffmpeg.exe" `
-            "$stage/ffmpeg.exe.sigstore" `
-            "${{ steps.zip.outputs.zipPath }}" `
-            --title "${{ steps.ver.outputs.tag }}" `
-            --notes "See manifest.json for component versions."
+          $zip   = "${{ steps.zip.outputs.zipPath }}"
+
+          $assets = @(
+            "$stage/manifest.json",
+            "$stage/manifest.json.sigstore",
+            "$stage/YtDlpTool.exe",
+            "$stage/YtDlpTool.exe.sigstore",
+            "$stage/bin/yt-dlp.exe",
+            "$stage/yt-dlp.exe.sigstore",
+            "$stage/bin/ffmpeg.exe",
+            "$stage/ffmpeg.exe.sigstore",
+            $zip
+          )
+
+          # Idempotent: if a release exists (e.g. user pre-created it via the UI
+          # or a previous workflow run partially succeeded), upload-with-clobber
+          # replaces assets in place. Otherwise create the release first.
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Release $tag does not exist — creating it"
+            gh release create $tag --title $tag --notes "See manifest.json for component versions."
+            if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
+          } else {
+            Write-Host "Release $tag already exists — uploading assets with --clobber"
+          }
+
+          gh release upload $tag @assets --clobber
+          if ($LASTEXITCODE -ne 0) { throw "gh release upload failed" }
