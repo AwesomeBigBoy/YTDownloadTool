@@ -16,4 +16,6 @@ public partial class QueueItemViewModel : ObservableObject
     [ObservableProperty] private string? _outputFilePath;
     [ObservableProperty] private string _modeLabel = "";
     [ObservableProperty] private string _qualityLabel = "";
+
+    public void SetStatus(JobStatus s) => Status = s;
 }

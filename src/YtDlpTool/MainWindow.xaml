@@ -65,6 +65,12 @@
                     <views:QualityDropdown Margin="0,0,0,16" />
                     <views:AdvancedOptionsView Margin="0,0,0,16" />
                     <views:SaveLocationView Margin="0,0,0,16" />
+                    <Button x:Name="AddDownloadButton"
+                            Style="{StaticResource PrimaryButton}"
+                            Content="{StaticResource Button.AddDownload}"
+                            Margin="0,0,0,16"
+                            Click="OnAddDownloadClicked" />
+                    <views:QueuePanelView />
                 </StackPanel>
             </ScrollViewer>
         </Grid>

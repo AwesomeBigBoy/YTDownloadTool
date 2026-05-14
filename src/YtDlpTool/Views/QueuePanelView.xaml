@@ -1,0 +1,58 @@
+<UserControl x:Class="YtDlpTool.Views.QueuePanelView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:YtDlpTool.ViewModels">
+    <Border Style="{StaticResource GlassCard}" Padding="16,12">
+        <StackPanel>
+            <TextBlock>
+                <Run Text="{StaticResource Queue.Title}" />
+                <Run x:Name="CountRun" Text=" (0)"
+                     Foreground="{StaticResource Brush.TextTertiary}" />
+            </TextBlock>
+            <ItemsControl x:Name="QueueItems" Margin="0,12,0,0"
+                          ItemsSource="{Binding Queue}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:QueueItemViewModel}">
+                        <Border Margin="0,0,0,8"
+                                BorderBrush="{StaticResource Brush.GlassBorder}"
+                                BorderThickness="0,0,0,1"
+                                Padding="0,8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="3" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Rectangle Grid.Column="0" Fill="{Binding Status, Converter={StaticResource StatusToColorConverter}}"
+                                           Width="3" />
+                                <Image Grid.Column="1" Width="64" Height="36" Margin="8,0"
+                                       Stretch="UniformToFill"
+                                       Source="{Binding ThumbnailUrl}" />
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"
+                                               Foreground="{StaticResource Brush.TextPrimary}" />
+                                    <ProgressBar Margin="0,4,0,0" Height="4"
+                                                 Value="{Binding ProgressPercent}" />
+                                    <TextBlock FontSize="11" Margin="0,4,0,0"
+                                               Foreground="{StaticResource Brush.TextSecondary}"
+                                               FontFamily="{StaticResource Font.Numeric}"
+                                               Text="{Binding Converter={StaticResource QueueMetaConverter}}" />
+                                </StackPanel>
+                                <Button Grid.Column="3"
+                                        Background="Transparent" BorderThickness="0"
+                                        Content="✕"
+                                        FontSize="14"
+                                        Foreground="{StaticResource Brush.TextTertiary}"
+                                        Cursor="Hand"
+                                        Margin="8,0,0,0"
+                                        Tag="{Binding Id}"
+                                        Click="OnCancelClicked" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </Border>
+</UserControl>
