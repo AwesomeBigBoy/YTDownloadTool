@@ -47,6 +47,13 @@
                        Foreground="{StaticResource Brush.Danger}"
                        Visibility="Collapsed" />
 
+            <TextBlock x:Name="FirstHint"
+                       Margin="0,12,0,0"
+                       Foreground="{StaticResource Brush.TextTertiary}"
+                       FontSize="12"
+                       Visibility="Collapsed"
+                       Text="{StaticResource Hint.FirstParse}" />
+
             <!-- Metadata card (shown after successful parse) -->
             <Border x:Name="MetaCard"
                     Margin="0,16,0,0"

@@ -81,6 +81,7 @@ public partial class UrlInputView : UserControl
             vm.CurrentMetadata = result.Metadata;
             ShowMeta(result.Metadata);
             if (!vm.ShowFirstHint) vm.ShowFirstHint = true;
+            await ShowFirstHintBriefly();
         }
         catch (OperationCanceledException) { /* user typed more */ }
         finally
@@ -139,6 +140,26 @@ public partial class UrlInputView : UserControl
             OnDebounceElapsed(this, EventArgs.Empty);
             e.Handled = true;
         }
+    }
+
+    private async Task ShowFirstHintBriefly()
+    {
+        FirstHint.Visibility = Visibility.Visible;
+        FirstHint.Opacity = 1;
+        await Task.Delay(3000);
+        var anim = new System.Windows.Media.Animation.DoubleAnimation
+        {
+            From = 1, To = 0, Duration = TimeSpan.FromMilliseconds(500)
+        };
+        anim.Completed += (_, _) => FirstHint.Visibility = Visibility.Collapsed;
+        FirstHint.BeginAnimation(System.Windows.UIElement.OpacityProperty, anim);
+    }
+
+    public void SetTextProgrammatically(string text)
+    {
+        UrlTextBox.Text = text;
+        UrlTextBox.CaretIndex = text.Length;
+        UrlTextBox.Focus();
     }
 
     public void RefreshPasteHint()
