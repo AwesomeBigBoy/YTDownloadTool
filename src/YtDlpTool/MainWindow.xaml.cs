@@ -27,7 +27,10 @@ public partial class MainWindow : Window
 
     private void OnSettingsClicked(object sender, RoutedEventArgs e)
     {
-        MessageBox.Show("設定對話框將在 Phase 9 完成", "YtDlpTool");
+        var host = ((App)Application.Current).Host;
+        if (host is null) return;
+        var dlg = new Dialogs.SettingsDialog(host) { Owner = this };
+        dlg.ShowDialog();
     }
 
     private void OnAddDownloadClicked(object sender, RoutedEventArgs e)
