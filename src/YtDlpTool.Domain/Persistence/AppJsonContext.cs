@@ -8,6 +8,8 @@ namespace YtDlpTool.Domain.Persistence;
     UseStringEnumConverter = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(AppConfig))]
+[JsonSerializable(typeof(StateJournalEvent))]
+[JsonSerializable(typeof(JobSnapshot))]
 public partial class AppJsonContext : JsonSerializerContext
 {
 }
