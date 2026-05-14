@@ -2,19 +2,19 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=netstandard">
 
-    <!-- Colours · Light -->
-    <Color x:Key="Color.Accent">#2A2A3E</Color>
-    <Color x:Key="Color.AccentHover">#3D3D55</Color>
-    <Color x:Key="Color.Danger">#C45D5D</Color>
-    <Color x:Key="Color.Success">#7EB89B</Color>
-    <Color x:Key="Color.TextPrimary">#EB2A2A3E</Color>     <!-- alpha 92% -->
-    <Color x:Key="Color.TextSecondary">#8C2A2A3E</Color>   <!-- alpha 55% -->
-    <Color x:Key="Color.TextTertiary">#592A2A3E</Color>    <!-- alpha 35% -->
+    <!-- Colours · Sunrise Coral palette (was: muted navy/charcoal) -->
+    <Color x:Key="Color.Accent">#FF6B6B</Color>           <!-- vivid coral -->
+    <Color x:Key="Color.AccentHover">#E54E4E</Color>
+    <Color x:Key="Color.Danger">#E63946</Color>
+    <Color x:Key="Color.Success">#3DDC97</Color>          <!-- bright mint -->
+    <Color x:Key="Color.TextPrimary">#EB22253A</Color>    <!-- alpha 92% over deep charcoal-purple -->
+    <Color x:Key="Color.TextSecondary">#8C22253A</Color>  <!-- alpha 55% -->
+    <Color x:Key="Color.TextTertiary">#5922253A</Color>   <!-- alpha 35% -->
     <Color x:Key="Color.GlassBorder">#80FFFFFF</Color>
-    <Color x:Key="Color.GlassFill">#A6FFFFFF</Color>
-    <Color x:Key="Color.AuroraA">#A8C4E8</Color>
-    <Color x:Key="Color.AuroraB">#D4B3D8</Color>
-    <Color x:Key="Color.AuroraC">#F5C9B3</Color>
+    <Color x:Key="Color.GlassFill">#B3FFFFFF</Color>      <!-- 70% opacity, more readable over bright gradient -->
+    <Color x:Key="Color.AuroraA">#FF9DBA</Color>          <!-- cherry blossom pink -->
+    <Color x:Key="Color.AuroraB">#FFCC99</Color>          <!-- soft peach -->
+    <Color x:Key="Color.AuroraC">#A8E0FF</Color>          <!-- sky blue -->
 
     <!-- Brushes (only ones used in 2+ places — others stay inline) -->
     <SolidColorBrush x:Key="Brush.Accent" Color="{StaticResource Color.Accent}" />
