@@ -47,8 +47,9 @@ jobs:
           }
           Set-Content -Path $csproj -Value $content -Encoding utf8
 
-      - name: Restore (locked)
-        run: dotnet restore --locked-mode
+      - name: Restore
+        # --locked-mode intentionally omitted — see pr-check.yml for rationale (Phase 1 deviation)
+        run: dotnet restore
 
       - name: Test
         run: dotnet test -c Release
