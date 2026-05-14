@@ -10,6 +10,11 @@
         FontFamily="{StaticResource Font.Default}"
         FontSize="14">
 
+    <Window.InputBindings>
+        <KeyBinding Modifiers="Control" Key="V" Command="{Binding PasteFromClipboardCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+        <KeyBinding Key="Escape" Command="{Binding CancelSelectedQueueCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+    </Window.InputBindings>
+
     <Grid>
         <!-- Aurora animated layer behind everything -->
         <views:AuroraBackground />

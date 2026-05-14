@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Input;
 using YtDlpTool.Interop;
 using YtDlpTool.ViewModels;
 
@@ -54,5 +55,31 @@ public partial class MainWindow : Window
     private void OnAddDownloadClicked(object sender, RoutedEventArgs e)
     {
         ViewModel?.AddDownloadCommand.Execute(null);
+    }
+
+    public ICommand PasteFromClipboardCommand => new RelayCommandAdapter(_ =>
+    {
+        if (!Clipboard.ContainsText()) return;
+        var text = Clipboard.GetText();
+        UrlInput?.SetTextProgrammatically(text);
+    });
+
+    public ICommand CancelSelectedQueueCommand => new RelayCommandAdapter(_ =>
+    {
+        // No selectable queue item yet (Phase 8 keeps the list non-selectable).
+        // Reserved for future use; currently a no-op to satisfy the keybinding.
+    });
+
+    private sealed class RelayCommandAdapter : ICommand
+    {
+        private readonly Action<object?> _execute;
+        public RelayCommandAdapter(Action<object?> execute) => _execute = execute;
+        public event EventHandler? CanExecuteChanged
+        {
+            add    { CommandManager.RequerySuggested += value; }
+            remove { CommandManager.RequerySuggested -= value; }
+        }
+        public bool CanExecute(object? p) => true;
+        public void Execute(object? p) => _execute(p);
     }
 }
