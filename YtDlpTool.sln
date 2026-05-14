@@ -7,6 +7,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{811A4718-D64
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YtDlpTool.Domain", "src\YtDlpTool.Domain\YtDlpTool.Domain.csproj", "{E1A77AD9-6A6F-425B-8F88-D39A722374D4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YtDlpTool.Process", "src\YtDlpTool.Process\YtDlpTool.Process.csproj", "{6635ABEB-8674-4697-93DA-EAE59D4ACA52}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,8 +22,13 @@ Global
 		{E1A77AD9-6A6F-425B-8F88-D39A722374D4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E1A77AD9-6A6F-425B-8F88-D39A722374D4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E1A77AD9-6A6F-425B-8F88-D39A722374D4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6635ABEB-8674-4697-93DA-EAE59D4ACA52}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6635ABEB-8674-4697-93DA-EAE59D4ACA52}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6635ABEB-8674-4697-93DA-EAE59D4ACA52}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6635ABEB-8674-4697-93DA-EAE59D4ACA52}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{E1A77AD9-6A6F-425B-8F88-D39A722374D4} = {811A4718-D641-4675-A737-6E7B08C9B381}
+		{6635ABEB-8674-4697-93DA-EAE59D4ACA52} = {811A4718-D641-4675-A737-6E7B08C9B381}
 	EndGlobalSection
 EndGlobal
