@@ -1,0 +1,132 @@
+# .github/workflows/release.yml
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write    # for gh release create
+  id-token: write    # for Sigstore OIDC
+
+jobs:
+  release:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Compute version from tag
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=$tag"          | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          # External-deps versions
+          $deps = Get-Content -Raw build/external-deps.json | ConvertFrom-Json
+          "ytdlpVersion=$($deps.'yt-dlp'.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "ffmpegVersion=$($deps.ffmpeg.version)"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Set assembly version
+        shell: pwsh
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+          $csproj = 'src/YtDlpTool/YtDlpTool.csproj'
+          $content = Get-Content -Raw $csproj
+          if ($content -notmatch '<Version>') {
+            $content = $content -replace '</PropertyGroup>',
+              "  <Version>$version</Version>`n  </PropertyGroup>"
+          } else {
+            $content = $content -replace '<Version>[^<]+</Version>', "<Version>$version</Version>"
+          }
+          Set-Content -Path $csproj -Value $content -Encoding utf8
+
+      - name: Restore
+        # --locked-mode intentionally omitted — see pr-check.yml for rationale (Phase 1 deviation)
+        run: dotnet restore
+
+      - name: Test
+        run: dotnet test -c Release
+
+      - name: Self-contained publish
+        run: dotnet publish src/YtDlpTool/YtDlpTool.csproj -c Release -r win-x64 --no-restore
+
+      - name: Fetch external deps
+        shell: pwsh
+        run: |
+          $publishDir = (Get-ChildItem -Recurse -Path src/YtDlpTool/bin/Release -Filter publish -Directory | Select-Object -First 1).FullName
+          ./build/fetch-external-deps.ps1 -OutputDir $publishDir
+
+      - name: Assemble portable folder
+        id: portable
+        shell: pwsh
+        run: |
+          $publishDir = (Get-ChildItem -Recurse -Path src/YtDlpTool/bin/Release -Filter publish -Directory | Select-Object -First 1).FullName
+          $stage = Join-Path $env:RUNNER_TEMP "YtDlpTool-stage"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item -Recurse "$publishDir\*" $stage -Force
+          # Keep only the things we ship:
+          Get-ChildItem $stage -File | Where-Object { $_.Name -notin @('YtDlpTool.exe') } | Remove-Item -Force
+          "stageDir=$stage" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Build manifest
+        shell: pwsh
+        run: |
+          ./build/build-manifest.ps1 `
+            -PortableDir "${{ steps.portable.outputs.stageDir }}" `
+            -AppVersion "${{ steps.ver.outputs.version }}" `
+            -YtDlpVersion "${{ steps.ver.outputs.ytdlpVersion }}" `
+            -FfmpegVersion "${{ steps.ver.outputs.ffmpegVersion }}" `
+            -Owner "${{ github.repository_owner }}" `
+            -Repo "${{ github.event.repository.name }}" `
+            -TagName "${{ steps.ver.outputs.tag }}" `
+            -OutputManifestPath "${{ steps.portable.outputs.stageDir }}/manifest.json"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sigstore-sign manifest + per-file
+        shell: pwsh
+        run: |
+          $stage = "${{ steps.portable.outputs.stageDir }}"
+          $env:COSIGN_EXPERIMENTAL = '1'
+          cosign sign-blob --yes --bundle "$stage/manifest.json.sigstore" "$stage/manifest.json"
+          cosign sign-blob --yes --bundle "$stage/YtDlpTool.exe.sigstore" "$stage/YtDlpTool.exe"
+          cosign sign-blob --yes --bundle "$stage/yt-dlp.exe.sigstore"    "$stage/bin/yt-dlp.exe"
+          cosign sign-blob --yes --bundle "$stage/ffmpeg.exe.sigstore"    "$stage/bin/ffmpeg.exe"
+
+      - name: Pack portable zip
+        id: zip
+        shell: pwsh
+        run: |
+          $stage = "${{ steps.portable.outputs.stageDir }}"
+          $zipName = "YtDlpTool-${{ steps.ver.outputs.tag }}-win-x64.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP $zipName
+          Compress-Archive -Path "$stage\*" -DestinationPath $zipPath -Force
+          "zipPath=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "zipName=$zipName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $stage = "${{ steps.portable.outputs.stageDir }}"
+          gh release create "${{ steps.ver.outputs.tag }}" `
+            "$stage/manifest.json" `
+            "$stage/manifest.json.sigstore" `
+            "$stage/YtDlpTool.exe" `
+            "$stage/YtDlpTool.exe.sigstore" `
+            "$stage/bin/yt-dlp.exe" `
+            "$stage/yt-dlp.exe.sigstore" `
+            "$stage/bin/ffmpeg.exe" `
+            "$stage/ffmpeg.exe.sigstore" `
+            "${{ steps.zip.outputs.zipPath }}" `
+            --title "${{ steps.ver.outputs.tag }}" `
+            --notes "See manifest.json for component versions."

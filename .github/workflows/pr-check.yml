@@ -1,0 +1,47 @@
+# .github/workflows/pr-check.yml
+name: PR check
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        # --locked-mode is intentionally omitted: only the WPF app csproj has RestoreLockedMode=true.
+        # Libraries and tests can't enforce it because NSec.Cryptography brings in RID-specific libsodium
+        # which would conflict with the multi-target restore flow.
+        run: dotnet restore
+
+      - name: Build (Release)
+        run: dotnet build -c Release --no-restore
+
+      - name: Test
+        run: dotnet test -c Release --no-build --verbosity normal
+
+      - name: Self-contained publish smoke
+        run: dotnet publish src/YtDlpTool/YtDlpTool.csproj -c Release -r win-x64 --no-restore
+
+      - name: Verify publish exe exists and size sane
+        shell: pwsh
+        run: |
+          # Filter to the publish subdir specifically — Get-ChildItem -Recurse on bin/Release picks
+          # up the intermediate ~9 MB exe as well, which would fail the size check spuriously.
+          $exe = Get-ChildItem -Recurse -Path src/YtDlpTool/bin/Release -Filter YtDlpTool.exe |
+                 Where-Object { $_.FullName -match '\\publish\\' } |
+                 Select-Object -First 1
+          if (-not $exe) { throw 'Published YtDlpTool.exe missing (no file under publish/)' }
+          $sizeMb = [math]::Round($exe.Length / 1MB, 2)
+          if ($sizeMb -lt 30 -or $sizeMb -gt 120) { throw "Exe size $sizeMb MB outside expected 30-120 MB range" }
+          Write-Host "Published YtDlpTool.exe: $($exe.FullName) size=$sizeMb MB"

@@ -1,0 +1,95 @@
+<UserControl x:Class="YtDlpTool.Views.UrlInputView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Style="{StaticResource GlassCard}">
+        <StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="UrlTextBox"
+                         Grid.Column="0"
+                         FontSize="15"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="0,6,8,6"
+                         VerticalContentAlignment="Center"
+                         TextChanged="OnTextChanged"
+                         KeyDown="OnKeyDown" />
+                <TextBlock x:Name="Placeholder"
+                           Grid.Column="0"
+                           Text="{StaticResource Url.Placeholder}"
+                           IsHitTestVisible="False"
+                           Foreground="{StaticResource Brush.TextTertiary}"
+                           Padding="0,6,8,6"
+                           VerticalAlignment="Center" />
+                <Button x:Name="PasteButton"
+                        Grid.Column="1"
+                        Content="{StaticResource Url.PasteButton}"
+                        Visibility="Collapsed"
+                        Padding="10,4"
+                        Background="Transparent"
+                        Foreground="{StaticResource Brush.Accent}"
+                        BorderBrush="{StaticResource Brush.Accent}"
+                        BorderThickness="1"
+                        Cursor="Hand"
+                        Click="OnPasteClicked" />
+            </Grid>
+
+            <ProgressBar x:Name="ParsingBar"
+                         Height="2" Margin="0,8,0,0"
+                         IsIndeterminate="True"
+                         Visibility="Collapsed" />
+
+            <TextBlock x:Name="ErrorLabel"
+                       Margin="0,8,0,0"
+                       Foreground="{StaticResource Brush.Danger}"
+                       Visibility="Collapsed" />
+
+            <TextBlock x:Name="FirstHint"
+                       Margin="0,12,0,0"
+                       Foreground="{StaticResource Brush.TextTertiary}"
+                       FontSize="12"
+                       Visibility="Collapsed"
+                       Text="{StaticResource Hint.FirstParse}" />
+
+            <!-- Metadata card (shown after successful parse) -->
+            <Border x:Name="MetaCard"
+                    Margin="0,16,0,0"
+                    Visibility="Collapsed"
+                    Background="#33FFFFFF"
+                    BorderBrush="{StaticResource Brush.GlassBorder}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Image x:Name="MetaThumb" Grid.Column="0" Width="96" Height="54" Stretch="UniformToFill" />
+                    <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="MetaTitle"
+                                   FontWeight="SemiBold" FontSize="14"
+                                   Foreground="{StaticResource Brush.TextPrimary}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Margin="0,4,0,0"
+                                   Foreground="{StaticResource Brush.TextSecondary}">
+                            <Run x:Name="MetaChannel" />
+                            <Run Text=" · " />
+                            <Run x:Name="MetaDuration" FontFamily="{StaticResource Font.Numeric}" />
+                        </TextBlock>
+                    </StackPanel>
+                    <Button Grid.Column="2"
+                            Content="{StaticResource Url.ClearButton}"
+                            Background="Transparent" BorderThickness="0"
+                            Foreground="{StaticResource Brush.TextSecondary}"
+                            Cursor="Hand"
+                            Click="OnClearClicked" />
+                </Grid>
+            </Border>
+        </StackPanel>
+    </Border>
+</UserControl>

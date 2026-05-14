@@ -1,0 +1,13 @@
+{
+  "yt-dlp": {
+    "version": "2026.05.01",
+    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.05.01/yt-dlp.exe",
+    "sha256": "TO_BE_FILLED_AT_FIRST_BUILD"
+  },
+  "ffmpeg": {
+    "version": "7.1-essentials_build",
+    "url": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-7.1-essentials_build.zip",
+    "sha256": "TO_BE_FILLED_AT_FIRST_BUILD",
+    "executableInsideZip": "ffmpeg-7.1-essentials_build/bin/ffmpeg.exe"
+  }
+}
