@@ -82,7 +82,7 @@ public partial class SettingsDialog : Window
         _host.Queue.MaxConcurrency = cfg.ConcurrentDownloads;
         cfg.AppCheckFrequency = ParseFrequency(FrequencyCombo);
         cfg.YtDlpCheckFrequency = EnableYtDlpUpdates.IsChecked == true ? UpdateCheckFrequency.Weekly : UpdateCheckFrequency.Never;
-        cfg.FfmpegCheckFrequency = EnableFfmpegUpdates.IsChecked == true ? UpdateCheckFrequency.Monthly : UpdateCheckFrequency.Never;
+        cfg.FfmpegCheckFrequency = EnableFfmpegUpdates.IsChecked == true ? UpdateCheckFrequency.Weekly : UpdateCheckFrequency.Never;
         cfg.Theme = ParseTheme(ThemeCombo);
         _host.ConfigStore.Save(cfg);
         ((App)Application.Current).ThemeService.Apply(cfg.Theme);
