@@ -27,14 +27,22 @@
     <SolidColorBrush x:Key="Brush.GlassBorder" Color="{StaticResource Color.GlassBorder}" />
     <SolidColorBrush x:Key="Brush.GlassFill"   Color="{StaticResource Color.GlassFill}" />
 
-    <!-- Spacing -->
-    <sys:Double x:Key="Space.1">4</sys:Double>
-    <sys:Double x:Key="Space.2">8</sys:Double>
-    <sys:Double x:Key="Space.3">12</sys:Double>
-    <sys:Double x:Key="Space.4">16</sys:Double>
-    <sys:Double x:Key="Space.5">24</sys:Double>
-    <sys:Double x:Key="Space.6">32</sys:Double>
-    <sys:Double x:Key="Space.7">48</sys:Double>
+    <!-- Spacing (Thickness so Margin/Padding StaticResource lookups don't break;
+         use Space.NValue (Double) for Width/Height/numeric contexts) -->
+    <Thickness x:Key="Space.1">4</Thickness>
+    <Thickness x:Key="Space.2">8</Thickness>
+    <Thickness x:Key="Space.3">12</Thickness>
+    <Thickness x:Key="Space.4">16</Thickness>
+    <Thickness x:Key="Space.5">24</Thickness>
+    <Thickness x:Key="Space.6">32</Thickness>
+    <Thickness x:Key="Space.7">48</Thickness>
+    <sys:Double x:Key="Space.1Value">4</sys:Double>
+    <sys:Double x:Key="Space.2Value">8</sys:Double>
+    <sys:Double x:Key="Space.3Value">12</sys:Double>
+    <sys:Double x:Key="Space.4Value">16</sys:Double>
+    <sys:Double x:Key="Space.5Value">24</sys:Double>
+    <sys:Double x:Key="Space.6Value">32</sys:Double>
+    <sys:Double x:Key="Space.7Value">48</sys:Double>
 
     <!-- Typography -->
     <FontFamily x:Key="Font.Default">Microsoft JhengHei UI, Segoe UI Variable, Segoe UI</FontFamily>
