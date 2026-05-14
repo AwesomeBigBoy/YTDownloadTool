@@ -10,7 +10,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>YtDlpTool</RootNamespace>
     <AssemblyName>YtDlpTool</AssemblyName>
-    <ApplicationIcon></ApplicationIcon>
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
     <Platforms>x64</Platforms>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
@@ -31,5 +31,10 @@
   <ItemGroup>
     <ProjectReference Include="..\YtDlpTool.Domain\YtDlpTool.Domain.csproj" />
     <ProjectReference Include="..\YtDlpTool.Process\YtDlpTool.Process.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Window.Icon="Resources/app.ico" loads via Application.GetResourceStream so the
+         file needs to be a Resource (compiled into the assembly), not just on disk. -->
+    <Resource Include="Resources\app.ico" />
   </ItemGroup>
 </Project>
