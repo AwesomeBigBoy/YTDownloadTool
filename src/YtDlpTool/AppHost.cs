@@ -88,6 +88,16 @@ public sealed class AppHost : IDisposable
     private static string ThisVersion() =>
         System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0";
 
+    /// <summary>
+    /// Probes installed yt-dlp and ffmpeg versions plus this app's version. Used by both the
+    /// background update check and the Settings dialog's manual "check now" / "redownload components"
+    /// flows so they share the exact same probe path.
+    /// </summary>
+    public async Task<InstalledVersions> GetInstalledVersionsAsync() => new(
+        App: ThisVersion(),
+        YtDlp: await ProbeYtDlpVersionAsync().ConfigureAwait(false),
+        Ffmpeg: await ProbeFfmpegVersionAsync().ConfigureAwait(false));
+
     public UpdateBannerViewModel BannerVm { get; } = new();
 
     public async Task StartBackgroundUpdateCheckAsync(CancellationToken ct)
@@ -98,10 +108,7 @@ public sealed class AppHost : IDisposable
 
         if (!ShouldCheckNow(Config)) return;
 
-        var installed = new InstalledVersions(
-            App: ThisVersion(),
-            YtDlp: await ProbeYtDlpVersionAsync().ConfigureAwait(false),
-            Ffmpeg: await ProbeFfmpegVersionAsync().ConfigureAwait(false));
+        var installed = await GetInstalledVersionsAsync().ConfigureAwait(false);
 
         var availability = await UpdateChecker.CheckAsync(installed, ct).ConfigureAwait(false);
 
