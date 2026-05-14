@@ -10,4 +10,5 @@ public sealed record DownloadRequest(
     TimeRange? ClipRange,
     string SaveDirectory,
     string SanitizedFileStem,
-    bool EmbedThumbnail = true);
+    bool EmbedThumbnail = true,
+    bool ForceOverwrite = false);

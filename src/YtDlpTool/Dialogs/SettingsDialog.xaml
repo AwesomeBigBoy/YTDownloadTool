@@ -181,17 +181,32 @@
                                        FontSize="16" FontWeight="SemiBold"
                                        Foreground="{StaticResource Brush.TextPrimary}" />
                             <Rectangle Height="1" Fill="{StaticResource Brush.GlassBorder}" Margin="0,8,0,12" />
-                            <StackPanel Orientation="Horizontal">
+                            <WrapPanel Orientation="Horizontal">
                                 <Button Content="{StaticResource Settings.OpenLogs}"
                                         Style="{StaticResource SecondaryButton}"
-                                        Click="OnOpenLogs" Margin="0,0,8,0" />
+                                        Click="OnOpenLogs" Margin="0,0,8,8" />
                                 <Button Content="{StaticResource Settings.OpenDownloads}"
                                         Style="{StaticResource SecondaryButton}"
-                                        Click="OnOpenDownloads" Margin="0,0,8,0" />
+                                        Click="OnOpenDownloads" Margin="0,0,8,8" />
+                                <Button x:Name="RedownloadComponentsButton"
+                                        Content="重新下載元件"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Click="OnRedownloadComponentsClicked"
+                                        Margin="0,0,8,8" />
                                 <Button Content="{StaticResource Settings.About}"
                                         Style="{StaticResource SecondaryButton}"
-                                        Click="OnAbout" />
-                            </StackPanel>
+                                        Click="OnAbout" Margin="0,0,0,8" />
+                            </WrapPanel>
+                            <TextBlock x:Name="RedownloadStatusText"
+                                       Margin="0,8,0,0"
+                                       Visibility="Collapsed"
+                                       Foreground="{StaticResource Brush.TextSecondary}"
+                                       FontFamily="{StaticResource Font.Numeric}" />
+                            <ProgressBar x:Name="RedownloadProgressBar"
+                                         Margin="0,6,0,0" Height="6"
+                                         Minimum="0" Maximum="100"
+                                         Visibility="Collapsed"
+                                         IsIndeterminate="False" />
                         </StackPanel>
                     </Border>
                 </StackPanel>

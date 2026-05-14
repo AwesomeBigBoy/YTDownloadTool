@@ -105,6 +105,7 @@ public sealed class YtDlpRunner
         argList.AddRange(BuildSubtitleArgs(request));
         argList.AddRange(BuildClipArgs(request));
         if (request.EmbedThumbnail) argList.Add("--embed-thumbnail");
+        if (request.ForceOverwrite) argList.Add("--force-overwrites");
         argList.Add("--");
         argList.Add(request.Url);
 

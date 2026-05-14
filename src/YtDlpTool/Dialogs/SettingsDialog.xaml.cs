@@ -12,6 +12,7 @@ public partial class SettingsDialog : Window
     private readonly AppHost _host;
     private string _selectedSaveDir;
     private CancellationTokenSource? _checkUpdateCts;
+    private CancellationTokenSource? _redownloadCts;
 
     public SettingsDialog(AppHost host)
     {
@@ -22,6 +23,7 @@ public partial class SettingsDialog : Window
         Closed += (_, _) =>
         {
             try { _checkUpdateCts?.Cancel(); } catch { }
+            try { _redownloadCts?.Cancel(); } catch { }
         };
     }
 
@@ -191,4 +193,94 @@ public partial class SettingsDialog : Window
         };
     }
 
+    // -------- Fix 2: "重新下載元件" — force re-fetch yt-dlp + ffmpeg from manifest --------
+    private async void OnRedownloadComponentsClicked(object sender, RoutedEventArgs e)
+    {
+        _redownloadCts?.Cancel();
+        _redownloadCts = new CancellationTokenSource();
+        var ct = _redownloadCts.Token;
+
+        RedownloadComponentsButton.IsEnabled = false;
+        RedownloadStatusText.Visibility = Visibility.Visible;
+        RedownloadProgressBar.Visibility = Visibility.Visible;
+        RedownloadProgressBar.IsIndeterminate = true;
+        RedownloadStatusText.Text = "取得元件清單…";
+
+        try
+        {
+            // Use an empty "installed" probe so UpdateChecker reports every manifest entry as newer.
+            // We discard the newer-list and pull yt-dlp + ffmpeg entries from the manifest directly so
+            // this also works when versions match (the user explicitly asked to redownload).
+            var availability = await _host.UpdateChecker.CheckAsync(
+                new InstalledVersions(App: "0.0.0", YtDlp: "", Ffmpeg: ""),
+                ct).ConfigureAwait(true);
+
+            if (ct.IsCancellationRequested) return;
+            if (availability.Manifest is null)
+            {
+                RedownloadProgressBar.IsIndeterminate = false;
+                RedownloadProgressBar.Visibility = Visibility.Collapsed;
+                RedownloadStatusText.Text = $"取得清單失敗：{availability.FailureReason ?? "manifest missing"}";
+                return;
+            }
+
+            var targets = availability.Manifest.Files
+                .Where(f => f.Component is UpdateComponent.YtDlp or UpdateComponent.Ffmpeg)
+                .ToList();
+            if (targets.Count == 0)
+            {
+                RedownloadProgressBar.IsIndeterminate = false;
+                RedownloadProgressBar.Visibility = Visibility.Collapsed;
+                RedownloadStatusText.Text = "清單中找不到 yt-dlp/ffmpeg 元件";
+                return;
+            }
+
+            RedownloadProgressBar.IsIndeterminate = false;
+            RedownloadProgressBar.Value = 0;
+            var progress = new Progress<UpdateApplyProgress>(ApplyRedownloadStageToUi);
+            var result = await _host.UpdateApplier.ApplyAsync(targets, progress, ct).ConfigureAwait(true);
+            if (ct.IsCancellationRequested) return;
+
+            if (result.IsSuccess)
+            {
+                RedownloadStatusText.Text = "✓ 元件已重新下載完成";
+                RedownloadProgressBar.Value = 100;
+                try { await Task.Delay(2000, ct).ConfigureAwait(true); }
+                catch (OperationCanceledException) { return; }
+                RedownloadStatusText.Visibility = Visibility.Collapsed;
+                RedownloadProgressBar.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                RedownloadStatusText.Text = $"重新下載失敗：{result.FailureReason}";
+            }
+        }
+        catch (OperationCanceledException) { /* dialog closed */ }
+        catch (Exception ex)
+        {
+            RedownloadProgressBar.IsIndeterminate = false;
+            RedownloadProgressBar.Visibility = Visibility.Collapsed;
+            RedownloadStatusText.Text = $"重新下載失敗：{ex.Message}";
+        }
+        finally
+        {
+            RedownloadComponentsButton.IsEnabled = true;
+        }
+    }
+
+    private void ApplyRedownloadStageToUi(UpdateApplyProgress p)
+    {
+        RedownloadProgressBar.Value = p.FilePercent;
+        RedownloadStatusText.Text = p.Stage switch
+        {
+            UpdateApplyStage.Downloading        => $"下載中 · {p.FileName} · {p.FilePercent:0}%",
+            UpdateApplyStage.VerifyingHash      => "驗證雜湊…",
+            UpdateApplyStage.VerifyingSignature => "驗證簽章…",
+            UpdateApplyStage.Applying           => "套用中…",
+            UpdateApplyStage.Done               => "✓ 元件已重新下載完成",
+            UpdateApplyStage.RolledBack         => "重新下載失敗，已自動還原",
+            UpdateApplyStage.Failed             => "重新下載失敗",
+            _                                   => RedownloadStatusText.Text
+        };
+    }
 }
