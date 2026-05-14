@@ -2,30 +2,10 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=netstandard">
 
-    <!-- Colours · Sunrise Coral palette (was: muted navy/charcoal) -->
-    <Color x:Key="Color.Accent">#FF6B6B</Color>           <!-- vivid coral -->
-    <Color x:Key="Color.AccentHover">#E54E4E</Color>
-    <Color x:Key="Color.Danger">#E63946</Color>
-    <Color x:Key="Color.Success">#3DDC97</Color>          <!-- bright mint -->
-    <Color x:Key="Color.TextPrimary">#EB22253A</Color>    <!-- alpha 92% over deep charcoal-purple -->
-    <Color x:Key="Color.TextSecondary">#8C22253A</Color>  <!-- alpha 55% -->
-    <Color x:Key="Color.TextTertiary">#5922253A</Color>   <!-- alpha 35% -->
-    <Color x:Key="Color.GlassBorder">#80FFFFFF</Color>
-    <Color x:Key="Color.GlassFill">#B3FFFFFF</Color>      <!-- 70% opacity, more readable over bright gradient -->
-    <Color x:Key="Color.AuroraA">#FF9DBA</Color>          <!-- cherry blossom pink -->
-    <Color x:Key="Color.AuroraB">#FFCC99</Color>          <!-- soft peach -->
-    <Color x:Key="Color.AuroraC">#A8E0FF</Color>          <!-- sky blue -->
-
-    <!-- Brushes (only ones used in 2+ places — others stay inline) -->
-    <SolidColorBrush x:Key="Brush.Accent" Color="{StaticResource Color.Accent}" />
-    <SolidColorBrush x:Key="Brush.AccentHover" Color="{StaticResource Color.AccentHover}" />
-    <SolidColorBrush x:Key="Brush.Danger" Color="{StaticResource Color.Danger}" />
-    <SolidColorBrush x:Key="Brush.Success" Color="{StaticResource Color.Success}" />
-    <SolidColorBrush x:Key="Brush.TextPrimary" Color="{StaticResource Color.TextPrimary}" />
-    <SolidColorBrush x:Key="Brush.TextSecondary" Color="{StaticResource Color.TextSecondary}" />
-    <SolidColorBrush x:Key="Brush.TextTertiary" Color="{StaticResource Color.TextTertiary}" />
-    <SolidColorBrush x:Key="Brush.GlassBorder" Color="{StaticResource Color.GlassBorder}" />
-    <SolidColorBrush x:Key="Brush.GlassFill"   Color="{StaticResource Color.GlassFill}" />
+    <!-- Colours AND brushes live in Theme.Light.xaml / Theme.Dark.xaml.
+         ThemeService swaps the entire palette dictionary at runtime; existing StaticResource
+         lookups in views resolve through Application.Resources.MergedDictionaries against
+         whichever palette dictionary is currently merged. -->
 
     <!-- Spacing (Thickness so Margin/Padding StaticResource lookups don't break;
          use Space.NValue (Double) for Width/Height/numeric contexts) -->

@@ -1,0 +1,29 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Colours · Sunrise Coral palette (dark variant) -->
+    <Color x:Key="Color.Accent">#FF6B6B</Color>
+    <Color x:Key="Color.AccentHover">#E54E4E</Color>
+    <Color x:Key="Color.Danger">#E63946</Color>
+    <Color x:Key="Color.Success">#3DDC97</Color>
+    <Color x:Key="Color.TextPrimary">#EBE5E5F0</Color>    <!-- alpha 92% over near-white -->
+    <Color x:Key="Color.TextSecondary">#8CE5E5F0</Color>  <!-- alpha 55% -->
+    <Color x:Key="Color.TextTertiary">#59E5E5F0</Color>   <!-- alpha 35% -->
+    <Color x:Key="Color.GlassBorder">#4CFFFFFF</Color>
+    <Color x:Key="Color.GlassFill">#4C0F0F1F</Color>      <!-- semi-transparent dark -->
+    <Color x:Key="Color.AuroraA">#6B4C7A</Color>          <!-- deep plum -->
+    <Color x:Key="Color.AuroraB">#4C6B7A</Color>          <!-- deep teal -->
+    <Color x:Key="Color.AuroraC">#7A6B4C</Color>          <!-- deep amber -->
+
+    <!-- Brushes (same as light variant — bound to colours above) -->
+    <SolidColorBrush x:Key="Brush.Accent" Color="{StaticResource Color.Accent}" />
+    <SolidColorBrush x:Key="Brush.AccentHover" Color="{StaticResource Color.AccentHover}" />
+    <SolidColorBrush x:Key="Brush.Danger" Color="{StaticResource Color.Danger}" />
+    <SolidColorBrush x:Key="Brush.Success" Color="{StaticResource Color.Success}" />
+    <SolidColorBrush x:Key="Brush.TextPrimary" Color="{StaticResource Color.TextPrimary}" />
+    <SolidColorBrush x:Key="Brush.TextSecondary" Color="{StaticResource Color.TextSecondary}" />
+    <SolidColorBrush x:Key="Brush.TextTertiary" Color="{StaticResource Color.TextTertiary}" />
+    <SolidColorBrush x:Key="Brush.GlassBorder" Color="{StaticResource Color.GlassBorder}" />
+    <SolidColorBrush x:Key="Brush.GlassFill"   Color="{StaticResource Color.GlassFill}" />
+
+</ResourceDictionary>
