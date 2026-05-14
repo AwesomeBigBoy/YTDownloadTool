@@ -13,7 +13,7 @@
         </Storyboard>
     </UserControl.Resources>
     <Grid>
-        <Rectangle Opacity="0.35">
+        <Rectangle Opacity="0.95">
             <Rectangle.Fill>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                     <GradientStop x:Name="StopA" Color="{StaticResource Color.AuroraA}" Offset="0.0" />

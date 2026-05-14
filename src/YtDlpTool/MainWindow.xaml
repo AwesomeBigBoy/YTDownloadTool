@@ -6,7 +6,7 @@
         Width="1280" Height="800" MinWidth="900" MinHeight="600"
         WindowStartupLocation="CenterScreen"
         AllowsTransparency="False"
-        Background="Transparent"
+        Background="#FFF8F0"
         FontFamily="{StaticResource Font.Default}"
         FontSize="14">
 
