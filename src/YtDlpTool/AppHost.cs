@@ -6,6 +6,7 @@ using YtDlpTool.Domain.Security;
 using YtDlpTool.Domain.Services;
 using YtDlpTool.Domain.Updates;
 using YtDlpTool.Process;
+using YtDlpTool.ViewModels;
 
 namespace YtDlpTool;
 
@@ -85,6 +86,99 @@ public sealed class AppHost : IDisposable
 
     private static string ThisVersion() =>
         System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0";
+
+    public UpdateBannerViewModel BannerVm { get; } = new();
+
+    public async Task StartBackgroundUpdateCheckAsync(CancellationToken ct)
+    {
+        // Wait 60 seconds after startup before first check (spec 4.3).
+        try { await Task.Delay(TimeSpan.FromSeconds(60), ct).ConfigureAwait(false); }
+        catch (TaskCanceledException) { return; }
+
+        if (!ShouldCheckNow(Config)) return;
+
+        var installed = new InstalledVersions(
+            App: ThisVersion(),
+            YtDlp: ProbeYtDlpVersion(),
+            Ffmpeg: ProbeFfmpegVersion());
+
+        var availability = await UpdateChecker.CheckAsync(installed, ct).ConfigureAwait(false);
+
+        if (availability.HasUpdate && availability.NewerFiles.Count > 0)
+        {
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                BannerVm.Entries.Clear();
+                foreach (var f in availability.NewerFiles) BannerVm.Entries.Add(f);
+                BannerVm.Headline = availability.NewerFiles.Count == 1
+                    ? $"有新版本可更新 · {availability.NewerFiles[0].Name} {availability.NewerFiles[0].Version}"
+                    : $"有 {availability.NewerFiles.Count} 個元件可更新";
+                BannerVm.IsVisible = true;
+            });
+        }
+
+        Config.LastAppCheck = DateTimeOffset.UtcNow;
+        ConfigStore.Save(Config);
+    }
+
+    private static bool ShouldCheckNow(AppConfig cfg)
+    {
+        if (cfg.AppCheckFrequency == UpdateCheckFrequency.Never) return false;
+        if (cfg.LastAppCheck is null) return true;
+        var elapsed = DateTimeOffset.UtcNow - cfg.LastAppCheck.Value;
+        return cfg.AppCheckFrequency switch
+        {
+            UpdateCheckFrequency.EveryLaunch => true,
+            UpdateCheckFrequency.Daily       => elapsed >= TimeSpan.FromDays(1),
+            UpdateCheckFrequency.Weekly      => elapsed >= TimeSpan.FromDays(7),
+            UpdateCheckFrequency.Monthly     => elapsed >= TimeSpan.FromDays(30),
+            _ => false
+        };
+    }
+
+    private string ProbeYtDlpVersion()
+    {
+        // Probe by running `--version` synchronously with a tiny timeout. Best-effort.
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = Path.Combine(Paths.BinDirectory, "yt-dlp.exe"),
+                Arguments = "--version",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            if (p is null) return "";
+            if (!p.WaitForExit(2000)) { try { p.Kill(); } catch { } return ""; }
+            return p.StandardOutput.ReadToEnd().Trim();
+        }
+        catch { return ""; }
+    }
+
+    private string ProbeFfmpegVersion()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = Path.Combine(Paths.BinDirectory, "ffmpeg.exe"),
+                Arguments = "-version",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            if (p is null) return "";
+            if (!p.WaitForExit(2000)) { try { p.Kill(); } catch { } return ""; }
+            var firstLine = p.StandardOutput.ReadLine() ?? "";
+            // "ffmpeg version 7.1 ..." → take "7.1"
+            var parts = firstLine.Split(' ');
+            return parts.Length >= 3 ? parts[2] : "";
+        }
+        catch { return ""; }
+    }
 
     public void Dispose()
     {
