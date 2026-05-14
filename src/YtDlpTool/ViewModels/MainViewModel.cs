@@ -96,6 +96,7 @@ public partial class MainViewModel : ObservableObject
                         c.OutputFilePath = e.OutputFilePath;
                         c.ProgressPercent = 100;
                     }
+                    Interop.ToastService.NotifyDownloadCompleted(e.Job.Title, e.OutputFilePath);
                     break;
                 case JobFailedEvent e:
                     var f = Find(e.Job.Id);
@@ -104,6 +105,7 @@ public partial class MainViewModel : ObservableObject
                         f.SetStatus(JobStatus.Failed);
                         f.FailureReason = e.Error.UserMessage;
                     }
+                    Interop.ToastService.NotifyDownloadFailed(e.Job.Title, e.Error.UserMessage);
                     break;
                 case JobCancelledEvent e:
                     var x = Find(e.Job.Id);
