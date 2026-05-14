@@ -71,4 +71,17 @@ public sealed class StateJournal : IDisposable
     {
         if (File.Exists(path)) File.WriteAllText(path, "");
     }
+
+    public IReadOnlyList<StateJournalEvent> ReadSnapshotAndClear(string path)
+    {
+        lock (_gate)
+        {
+            _writer?.Flush();
+            var events = ReadAll(path).ToList();
+            _writer?.Dispose();
+            File.WriteAllText(path, "");
+            _writer = new StreamWriter(File.Open(path, FileMode.Append, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
+            return events;
+        }
+    }
 }
