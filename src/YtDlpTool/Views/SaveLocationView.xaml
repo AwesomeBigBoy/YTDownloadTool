@@ -18,10 +18,8 @@
                        Foreground="{StaticResource Brush.TextPrimary}"
                        ToolTip="{Binding ElementName=PathLabel, Path=Text}" />
             <Button Grid.Column="2"
+                    Style="{StaticResource LinkButton}"
                     Content="{StaticResource Save.Browse}"
-                    Background="Transparent" BorderThickness="0"
-                    Foreground="{StaticResource Brush.Accent}"
-                    Cursor="Hand"
                     Click="OnBrowseClicked" />
         </Grid>
     </Border>

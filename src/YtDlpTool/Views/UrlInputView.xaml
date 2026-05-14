@@ -26,14 +26,9 @@
                            VerticalAlignment="Center" />
                 <Button x:Name="PasteButton"
                         Grid.Column="1"
+                        Style="{StaticResource LinkButton}"
                         Content="{StaticResource Url.PasteButton}"
                         Visibility="Collapsed"
-                        Padding="10,4"
-                        Background="Transparent"
-                        Foreground="{StaticResource Brush.Accent}"
-                        BorderBrush="{StaticResource Brush.Accent}"
-                        BorderThickness="1"
-                        Cursor="Hand"
                         Click="OnPasteClicked" />
             </Grid>
 
@@ -83,10 +78,8 @@
                         </TextBlock>
                     </StackPanel>
                     <Button Grid.Column="2"
+                            Style="{StaticResource LinkButton}"
                             Content="{StaticResource Url.ClearButton}"
-                            Background="Transparent" BorderThickness="0"
-                            Foreground="{StaticResource Brush.TextSecondary}"
-                            Cursor="Hand"
                             Click="OnClearClicked" />
                 </Grid>
             </Border>

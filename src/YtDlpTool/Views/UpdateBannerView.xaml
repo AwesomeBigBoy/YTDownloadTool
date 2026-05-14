@@ -38,11 +38,9 @@
                     Visibility="{Binding IsApplying, Converter={StaticResource InverseBoolToVisibilityConverter}}" />
 
             <Button Grid.Column="2"
+                    Style="{StaticResource IconButton}"
                     Content="✕"
-                    Background="Transparent"
                     Foreground="White"
-                    BorderThickness="0"
-                    Cursor="Hand"
                     Click="OnLaterClicked" />
         </Grid>
     </Border>
