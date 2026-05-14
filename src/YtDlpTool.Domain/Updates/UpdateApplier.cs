@@ -23,6 +23,29 @@ public sealed class UpdateApplier
     {
         Directory.CreateDirectory(_paths.UpdateStaging);
 
+        // Defense-in-depth: validate every entry's target path lives strictly inside AppDirectory.
+        // Even though manifests are Sigstore-signed, a compromised signer or future bug
+        // must not be able to overwrite arbitrary filesystem locations via `..\..\` traversal
+        // or absolute paths like `C:\Windows\...`.
+        var appDirCanonical = Path.GetFullPath(_paths.AppDirectory).TrimEnd(Path.DirectorySeparatorChar);
+        foreach (var entry in entries)
+        {
+            if (string.IsNullOrEmpty(entry.Name) || entry.Name.Contains('/') || entry.Name.Contains('\\'))
+                return new UpdateApplyResult(false, $"無效的元件名稱：{entry.Name}");
+            string resolvedTarget;
+            try
+            {
+                resolvedTarget = Path.GetFullPath(Path.Combine(appDirCanonical, entry.TargetRelativePath));
+            }
+            catch (Exception ex)
+            {
+                return new UpdateApplyResult(false, $"目標路徑解析失敗：{ex.Message}");
+            }
+            if (!resolvedTarget.StartsWith(appDirCanonical + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(resolvedTarget, appDirCanonical, StringComparison.OrdinalIgnoreCase))
+                return new UpdateApplyResult(false, $"目標路徑超出安裝目錄：{entry.TargetRelativePath}");
+        }
+
         // Step 1+2: download all + verify hashes
         var staged = new List<(ManifestFileEntry Entry, string StagedPath)>();
         for (int i = 0; i < entries.Count; i++)

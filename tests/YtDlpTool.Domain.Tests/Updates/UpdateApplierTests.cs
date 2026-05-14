@@ -66,6 +66,75 @@ public class UpdateApplierTests : IDisposable
     }
 
     [Fact]
+    public async Task Apply_PathTraversal_Rejected()
+    {
+        var http = new StubHttp();
+        var entry = new ManifestFileEntry
+        {
+            Name = "yt-dlp.exe",
+            Component = UpdateComponent.YtDlp,
+            DownloadUrl = "https://fake/yt-dlp.exe",
+            SignatureUrl = "https://fake/yt-dlp.exe.sigstore",
+            Sha256 = new string('0', 64),
+            TargetRelativePath = "..\\..\\Windows\\evil.exe",
+            Version = "2026.05.14"
+        };
+
+        var applier = new UpdateApplier(http,
+            new SigstoreVerifierOptions("x", ".*", ""), _paths);
+        var result = await applier.ApplyAsync(new[] { entry }, null, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("超出安裝目錄", result.FailureReason!);
+    }
+
+    [Fact]
+    public async Task Apply_AbsolutePath_Rejected()
+    {
+        var http = new StubHttp();
+        var entry = new ManifestFileEntry
+        {
+            Name = "yt-dlp.exe",
+            Component = UpdateComponent.YtDlp,
+            DownloadUrl = "https://fake/yt-dlp.exe",
+            SignatureUrl = "https://fake/yt-dlp.exe.sigstore",
+            Sha256 = new string('0', 64),
+            TargetRelativePath = "C:\\Windows\\evil.exe",
+            Version = "2026.05.14"
+        };
+
+        var applier = new UpdateApplier(http,
+            new SigstoreVerifierOptions("x", ".*", ""), _paths);
+        var result = await applier.ApplyAsync(new[] { entry }, null, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("超出安裝目錄", result.FailureReason!);
+    }
+
+    [Fact]
+    public async Task Apply_NameWithSeparator_Rejected()
+    {
+        var http = new StubHttp();
+        var entry = new ManifestFileEntry
+        {
+            Name = "evil/file.exe",
+            Component = UpdateComponent.YtDlp,
+            DownloadUrl = "https://fake/yt-dlp.exe",
+            SignatureUrl = "https://fake/yt-dlp.exe.sigstore",
+            Sha256 = new string('0', 64),
+            TargetRelativePath = "bin\\yt-dlp.exe",
+            Version = "2026.05.14"
+        };
+
+        var applier = new UpdateApplier(http,
+            new SigstoreVerifierOptions("x", ".*", ""), _paths);
+        var result = await applier.ApplyAsync(new[] { entry }, null, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("無效的元件名稱", result.FailureReason!);
+    }
+
+    [Fact]
     public async Task Apply_SigFailure_AbortsAfterHash()
     {
         var http = new StubHttp();
