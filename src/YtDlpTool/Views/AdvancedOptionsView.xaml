@@ -1,6 +1,7 @@
 <UserControl x:Class="YtDlpTool.Views.AdvancedOptionsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctrl="clr-namespace:YtDlpTool.Controls">
     <Border Style="{StaticResource GlassCard}" Padding="16,12">
         <Expander x:Name="ExpanderRoot" Background="Transparent" BorderThickness="0">
             <Expander.Header>
@@ -33,11 +34,11 @@
                 <StackPanel Orientation="Horizontal">
                     <CheckBox x:Name="ClipEnabled" Content="{StaticResource Advanced.ClipLabel}"
                               Checked="OnClipToggle" Unchecked="OnClipToggle" />
-                    <TextBox x:Name="ClipStart" Width="84" Margin="12,0,0,0" Text="00:00:00"
-                             TextChanged="OnClipChanged" IsEnabled="False" />
+                    <ctrl:MaskedTimeTextBox x:Name="ClipStart" Width="84" Margin="12,0,0,0" Text="00:00:00"
+                                            TextChanged="OnClipChanged" IsEnabled="False" />
                     <TextBlock Text="—" Margin="4,0" VerticalAlignment="Center" />
-                    <TextBox x:Name="ClipEnd" Width="84" Text="00:01:00"
-                             TextChanged="OnClipChanged" IsEnabled="False" />
+                    <ctrl:MaskedTimeTextBox x:Name="ClipEnd" Width="84" Text="00:01:00"
+                                            TextChanged="OnClipChanged" IsEnabled="False" />
                 </StackPanel>
                 <TextBlock x:Name="ClipError"
                            Margin="0,4,0,0"
