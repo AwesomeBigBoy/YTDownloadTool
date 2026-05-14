@@ -1,0 +1,94 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=netstandard">
+
+    <!-- Window -->
+    <sys:String x:Key="App.Name">YtDlpTool</sys:String>
+    <sys:String x:Key="App.Tagline">輕量 YouTube 下載工具</sys:String>
+
+    <!-- URL input -->
+    <sys:String x:Key="Url.Placeholder">貼上 YouTube 網址…</sys:String>
+    <sys:String x:Key="Url.PasteButton">貼上</sys:String>
+    <sys:String x:Key="Url.ClearButton">清除</sys:String>
+    <sys:String x:Key="Url.Parsing">解析中…</sys:String>
+    <sys:String x:Key="Url.InvalidNotYouTube">這不是 YouTube 網址哦，請確認</sys:String>
+
+    <!-- Mode selector -->
+    <sys:String x:Key="Mode.AudioOnly">純音訊</sys:String>
+    <sys:String x:Key="Mode.AudioAndVideo">影音合併</sys:String>
+    <sys:String x:Key="Mode.VideoOnly">純影像</sys:String>
+
+    <!-- Quality dropdown -->
+    <sys:String x:Key="Quality.Label">品質</sys:String>
+    <sys:String x:Key="Quality.AudioHigh">高音質 M4A 256k</sys:String>
+    <sys:String x:Key="Quality.AudioStandard">標準 M4A 128k</sys:String>
+    <sys:String x:Key="Quality.Mp3_320">MP3 320k（轉碼）</sys:String>
+    <sys:String x:Key="Quality.Mp3_192">MP3 192k（轉碼）</sys:String>
+
+    <!-- Advanced -->
+    <sys:String x:Key="Advanced.Title">進階選項</sys:String>
+    <sys:String x:Key="Advanced.Hint">字幕 · 切片段</sys:String>
+    <sys:String x:Key="Advanced.SubtitlesLabel">字幕</sys:String>
+    <sys:String x:Key="Advanced.SubtitlesAutoSuffix">（自動）</sys:String>
+    <sys:String x:Key="Advanced.SubtitlesLimit">最多選 3 個</sys:String>
+    <sys:String x:Key="Advanced.ClipLabel">擷取片段</sys:String>
+    <sys:String x:Key="Advanced.ClipStart">開始</sys:String>
+    <sys:String x:Key="Advanced.ClipEnd">結束</sys:String>
+    <sys:String x:Key="Advanced.ClipFormatHint">格式：hh:mm:ss</sys:String>
+
+    <!-- Save location -->
+    <sys:String x:Key="Save.Label">儲存位置</sys:String>
+    <sys:String x:Key="Save.Browse">瀏覽…</sys:String>
+
+    <!-- Main button -->
+    <sys:String x:Key="Button.AddDownload">加入下載</sys:String>
+    <sys:String x:Key="Button.NeedUrl">請先貼上網址</sys:String>
+    <sys:String x:Key="Button.AddedFeedback">已加入佇列</sys:String>
+
+    <!-- Queue -->
+    <sys:String x:Key="Queue.Title">下載佇列</sys:String>
+    <sys:String x:Key="Queue.Cancel">取消</sys:String>
+    <sys:String x:Key="Queue.Retry">重試</sys:String>
+    <sys:String x:Key="Queue.CopyError">複製錯誤</sys:String>
+    <sys:String x:Key="Queue.OpenFolder">開啟資料夾</sys:String>
+
+    <!-- Update banner -->
+    <sys:String x:Key="Update.AvailableSingle">有新版本可更新</sys:String>
+    <sys:String x:Key="Update.AvailableMulti">有 {0} 個元件可更新</sys:String>
+    <sys:String x:Key="Update.OneClick">一鍵更新</sys:String>
+    <sys:String x:Key="Update.Later">稍後</sys:String>
+    <sys:String x:Key="Update.Downloading">下載中</sys:String>
+    <sys:String x:Key="Update.Verifying">驗證中…</sys:String>
+    <sys:String x:Key="Update.Applying">套用中…</sys:String>
+    <sys:String x:Key="Update.Done">已更新</sys:String>
+    <sys:String x:Key="Update.FailedRolledBack">更新失敗，已自動還原。點此查看詳情</sys:String>
+
+    <!-- Settings -->
+    <sys:String x:Key="Settings.Title">設定</sys:String>
+    <sys:String x:Key="Settings.SectionDownload">下載</sys:String>
+    <sys:String x:Key="Settings.SectionUpdate">更新</sys:String>
+    <sys:String x:Key="Settings.SectionUi">介面</sys:String>
+    <sys:String x:Key="Settings.SectionAdvanced">進階</sys:String>
+    <sys:String x:Key="Settings.DefaultSaveDir">預設儲存資料夾</sys:String>
+    <sys:String x:Key="Settings.Concurrency">並行下載數</sys:String>
+    <sys:String x:Key="Settings.CheckFrequency">檢查頻率</sys:String>
+    <sys:String x:Key="Settings.YtDlpUpdates">啟用 yt-dlp 自動更新</sys:String>
+    <sys:String x:Key="Settings.FfmpegUpdates">啟用 ffmpeg 自動更新</sys:String>
+    <sys:String x:Key="Settings.Language">語言</sys:String>
+    <sys:String x:Key="Settings.Theme">主題</sys:String>
+    <sys:String x:Key="Settings.OpenLogs">開啟日誌資料夾</sys:String>
+    <sys:String x:Key="Settings.OpenDownloads">開啟下載資料夾</sys:String>
+    <sys:String x:Key="Settings.About">關於</sys:String>
+
+    <!-- Errors -->
+    <sys:String x:Key="Error.NoWriteAccess">無法寫入此資料夾，請選其他位置</sys:String>
+    <sys:String x:Key="Error.DiskFull">磁碟空間不足（剩餘 {0}, 需要約 {1}）</sys:String>
+    <sys:String x:Key="Error.FileConflict">「{0}」已存在</sys:String>
+    <sys:String x:Key="Error.Conflict.Overwrite">覆蓋</sys:String>
+    <sys:String x:Key="Error.Conflict.Rename">改名為 {0}</sys:String>
+    <sys:String x:Key="Error.Conflict.Cancel">取消</sys:String>
+
+    <!-- First-launch hint -->
+    <sys:String x:Key="Hint.FirstParse">品質下拉可選不同解析度 · 右下可開進階選項</sys:String>
+
+</ResourceDictionary>
