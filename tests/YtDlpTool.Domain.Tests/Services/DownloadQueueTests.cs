@@ -117,6 +117,49 @@ public class DownloadQueueTests
         fake.GateForFirstJob.SetResult();
     }
 
+    private sealed class RateLimitedFakeExecutor : IDownloadExecutor
+    {
+        public int Calls;
+        public async Task<DownloadExecutionResult> ExecuteAsync(
+            DownloadJob job, IProgress<DownloadProgressSnapshot> progress,
+            CancellationToken cancellationToken)
+        {
+            var n = Interlocked.Increment(ref Calls);
+            await Task.Yield();
+            if (n == 1)
+            {
+                return new DownloadExecutionResult(false, null,
+                    new MappedError(ErrorCategory.RateLimited, "rate", "E-RATE001", true),
+                    WasCancelled: false);
+            }
+            return new DownloadExecutionResult(true, "C:\\Downloads\\T.m4a", null, false);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadQueue_RateLimited_RetriesOnce()
+    {
+        var fake = new RateLimitedFakeExecutor();
+        var events = new List<QueueEvent>();
+        using var queue = new DownloadQueue(
+            fake,
+            maxConcurrency: 1,
+            onEvent: e => { lock (events) events.Add(e); },
+            logger: null,
+            max429Retries: 1,
+            rateLimitRetryDelay: TimeSpan.FromMilliseconds(50));
+
+        queue.Enqueue(MakeJob());
+        await WaitFor(() => { lock (events) return events.Any(e => e is JobCompletedEvent); });
+
+        Assert.Equal(2, fake.Calls);
+        lock (events)
+        {
+            Assert.Contains(events, e => e is JobCompletedEvent);
+            Assert.DoesNotContain(events, e => e is JobFailedEvent);
+        }
+    }
+
     private static async Task WaitFor(Func<bool> cond, int timeoutMs = 2000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
