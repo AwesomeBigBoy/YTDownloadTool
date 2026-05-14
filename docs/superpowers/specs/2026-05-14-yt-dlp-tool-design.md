@@ -13,7 +13,7 @@
 ### 設計優先順序
 1. **安全**：使用者輸入驗證、子行程隔離、更新雙重簽章驗證 — 不協商
 2. **簡單**：UI 不暴露技術細節，預設值合理，無 onboarding
-3. **輕量**：app 本體 ~15 MB（NativeAOT），打包後總體 ~60 MB（含 yt-dlp.exe + ffmpeg.exe essentials build）
+3. **輕量**：app 本體 ~50–80 MB（self-contained single-file，含壓縮），打包後總體 ~100–130 MB（含 yt-dlp.exe + ffmpeg.exe essentials build）。**原規劃 ~15 MB 用的是 NativeAOT，但 Phase 1 實作時發現 WPF 與 NativeAOT 在 .NET 8 不相容（SDK NETSDK1168），改用 self-contained 單檔。managed信任度與其他承諾不變。**
 4. **可攜**：portable zip，解壓即用，所有狀態寫到 `%LOCALAPPDATA%`
 
 ### 非目標（v1 不做）
@@ -28,7 +28,7 @@
 
 | 決策 | 採用 | 替代方案 | 取捨理由 |
 |---|---|---|---|
-| 語言/框架 | C# .NET 8 + WPF + NativeAOT | Tauri (Rust+Web) / Wails (Go+Web) | managed環境信任度最高；WPF 不依賴 WebView2 runtime，相容老 Win10/LTSC；NativeAOT 產生單檔 ~15 MB |
+| 語言/框架 | C# .NET 8 + WPF + 自包含單檔 | Tauri (Rust+Web) / Wails (Go+Web) | managed環境信任度最高；WPF 不依賴 WebView2 runtime，相容老 Win10/LTSC。**NativeAOT 在 .NET 8 與 WPF 不相容，已改採 self-contained single-file publish（~50-80 MB）。** |
 | 發佈型態 | Portable zip (folder layout) | 單一 exe 內嵌資源 | 啟動瞬開、yt-dlp 獨立更新方便、managed部署友善 |
 | 更新簽章 | Ed25519 via Sigstore keyless | 軟體金鑰 / YubiKey | 0 元、零金鑰管理、用 GitHub OIDC 自動簽 |
 | Code Signing | v1 不做 | Azure Trusted Signing (~NT$330/月) | v1 接受 SmartScreen 警告，README 提供解封鎖說明；v2 升級不影響既有安裝 |
@@ -101,7 +101,7 @@ YtDlpTool\                       (使用者解壓位置或 %LOCALAPPDATA%\YtDlpT
 - `Views/FormatSelectorView` — Segmented control 三模式（音訊/影音/影像）
 - `Views/QualityDropdown` — 自訂 popup，顯示解析度與檔案大小估算
 - `Views/AdvancedOptionsView` — 摺疊：字幕多選、片段切割輸入
-- `Views/SaveLocationView` — 路徑顯示 + 瀏覽（Windows.Forms.FolderBrowserDialog）
+- `Views/SaveLocationView` — 路徑顯示 + 瀏覽（`Microsoft.Win32.OpenFolderDialog`，.NET 8 WPF-native，AOT 相容）
 - `Views/QueuePanelView` — 摺疊佇列；每列 `QueueItemView`
 - `Views/UpdateBannerView` — 頂部滑入橫幅
 - `Dialogs/SettingsDialog` — 並行數、預設儲存位置、更新頻率、語言、主題、關於
@@ -401,7 +401,7 @@ YtDlpTool\                       (使用者解壓位置或 %LOCALAPPDATA%\YtDlpT
 dotnet restore (locked mode)
 dotnet build -c Release
 dotnet test
-dotnet publish -c Release -r win-x64 --self-contained true /p:PublishAot=true
+dotnet publish src/YtDlpTool/YtDlpTool.csproj -c Release -r win-x64
 驗證 AOT 編譯成功
 ```
 

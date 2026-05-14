@@ -1,6 +1,6 @@
 # Phase 1 · Skeleton
 
-**Goal:** Create the .NET 8 solution with four projects, lock dependencies, prove NativeAOT publish works, and verify the shell window opens.
+**Goal:** Create the .NET 8 solution with four projects, lock dependencies, prove self-contained single-file publish works, and verify the shell window opens. (Originally specified NativeAOT publish; replaced when discovered WPF+NativeAOT are incompatible in .NET 8.)
 
 **Prerequisites:** Repo prerequisites in `2026-05-14-yt-dlp-tool.md` are done (`git init`, `.gitignore`, initial commit).
 
@@ -63,7 +63,6 @@ Edit `src/YtDlpTool.Domain/YtDlpTool.Domain.csproj` to look exactly like this:
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsAotCompatible>true</IsAotCompatible>
-    <RestoreLockedMode>true</RestoreLockedMode>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 </Project>
@@ -112,7 +111,6 @@ Edit `src/YtDlpTool.Process/YtDlpTool.Process.csproj`:
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsAotCompatible>true</IsAotCompatible>
-    <RestoreLockedMode>true</RestoreLockedMode>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
@@ -155,7 +153,7 @@ dotnet add src/YtDlpTool/YtDlpTool.csproj reference src/YtDlpTool.Domain/YtDlpTo
 dotnet add src/YtDlpTool/YtDlpTool.csproj reference src/YtDlpTool.Process/YtDlpTool.Process.csproj
 ```
 
-- [ ] **Step 2: Configure csproj for NativeAOT and Windows target**
+- [ ] **Step 2: Configure csproj for self-contained single-file publish**
 
 Replace `src/YtDlpTool/YtDlpTool.csproj` with:
 
@@ -166,7 +164,6 @@ Replace `src/YtDlpTool/YtDlpTool.csproj` with:
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <UseWPF>true</UseWPF>
-    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -176,10 +173,10 @@ Replace `src/YtDlpTool/YtDlpTool.csproj` with:
     <ApplicationIcon></ApplicationIcon>
     <Platforms>x64</Platforms>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <PublishAot>true</PublishAot>
-    <PublishTrimmed>true</PublishTrimmed>
-    <TrimMode>partial</TrimMode>
     <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <InvariantGlobalization>false</InvariantGlobalization>
     <RestoreLockedMode>true</RestoreLockedMode>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
@@ -191,7 +188,9 @@ Replace `src/YtDlpTool/YtDlpTool.csproj` with:
 </Project>
 ```
 
-> **Note:** `TargetPlatformMinVersion=10.0.17763.0` is Windows 10 1809, the spec's minimum target. `PublishAot=true` is the NativeAOT switch. `UseWindowsForms=true` is required for `FolderBrowserDialog`.
+> **NativeAOT removed — design deviation from spec §2.** WPF and NativeAOT are mutually exclusive in .NET 8 (SDK hard-errors on `UseWpf=true + PublishTrimmed=true`; WPF's reflection-heavy XAML/binding subsystem isn't trim-safe; see https://aka.ms/dotnet-illink/wpf). The spec promised ~15 MB exe; reality with self-contained single-file compressed publish is ~50–80 MB. All other spec guarantees (managedtrust via pure MS tech, no WebView2 dependency, portable layout) remain intact. Microsoft.NET.Sdk source of the error: `Microsoft.NET.RuntimeIdentifierInference.targets:254-258`.
+>
+> `TargetPlatformMinVersion=10.0.17763.0` = Windows 10 1809 (spec's minimum). `EnableCompressionInSingleFile` shaves ~30-40% off the exe. `IncludeNativeLibrariesForSelfExtract` keeps WPF's native libs in the single file. Folder picking uses `Microsoft.Win32.OpenFolderDialog` (.NET 8 WPF-native).
 
 - [ ] **Step 3: Verify default debug build runs**
 
@@ -204,7 +203,7 @@ Expected: `Build succeeded.`
 
 ```powershell
 git add src/YtDlpTool/ YtDlpTool.sln
-git commit -m "feat(app): scaffold WPF app with NativeAOT enabled"
+git commit -m "feat(app): scaffold WPF app with self-contained single-file publish"
 ```
 
 ---
@@ -248,7 +247,6 @@ For Domain tests:
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <RestoreLockedMode>true</RestoreLockedMode>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
@@ -347,7 +345,7 @@ git commit -m "feat(domain): add NSec.Cryptography for Ed25519, lock packages"
 
 ```powershell
 dotnet add src/YtDlpTool/YtDlpTool.csproj package CommunityToolkit.Mvvm --version 8.3.2
-dotnet add src/YtDlpTool/YtDlpTool.csproj package CommunityToolkit.WinUI.Notifications --version 7.1.3
+dotnet add src/YtDlpTool/YtDlpTool.csproj package CommunityToolkit.WinUI.Notifications --version 7.1.2
 ```
 
 - [ ] **Step 2: Restore with lock for all projects**
@@ -456,7 +454,7 @@ git commit -m "feat(app): phase-1 placeholder main window"
 
 ---
 
-### Task 1.9: NativeAOT publish smoke test
+### Task 1.9: Self-contained single-file publish smoke test
 
 **Files:** (none new, only verification)
 
@@ -465,27 +463,32 @@ git commit -m "feat(app): phase-1 placeholder main window"
 ```powershell
 dotnet publish src/YtDlpTool/YtDlpTool.csproj -c Release -r win-x64
 ```
-Expected: build succeeds. Note any AOT-related warnings (`IL2026`, `IL3050` — trimming/AOT analyzers). On a fresh WPF app these should be **zero** because WPF on .NET 8 has working AOT support. If any appear, stop and surface them.
+Expected: build succeeds. No `NETSDK1168` (WPF+trim) or `NETSDK1175` (WinForms+trim) errors. No IL2026/IL3050 trim-analyser warnings (we don't enable trimming).
 
 - [ ] **Step 2: Locate output exe**
 
 ```powershell
-Get-ChildItem src/YtDlpTool/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/YtDlpTool.exe
+Get-ChildItem src/YtDlpTool/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/YtDlpTool.exe | Select-Object FullName,Length
 ```
-Expected: exists, size between 10–25 MB.
+Expected: exists. With `EnableCompressionInSingleFile=true` the size lands roughly 50–80 MB (uncompressed self-contained WPF is ~150 MB; compression halves it). If size is outside 30–120 MB, report DONE_WITH_CONCERNS.
 
-- [ ] **Step 3: Run the published exe**
+- [ ] **Step 3: Confirm the exe is well-formed (no run, no UI assumption)**
+
+Skip executing the binary — verify it's a valid PE by checking the MZ signature and that file size is reasonable:
 
 ```powershell
-Start-Process src/YtDlpTool/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/YtDlpTool.exe
+$exePath = "src/YtDlpTool/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/YtDlpTool.exe"
+$bytes = [System.IO.File]::ReadAllBytes($exePath)
+if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw "Not a valid PE file (no MZ header)" }
+Write-Host "PE OK, size = $([math]::Round((Get-Item $exePath).Length / 1MB, 1)) MB"
 ```
-Expected: same dark window opens. Close it.
 
-- [ ] **Step 4: Commit (nothing to add, but tag this milestone)**
+- [ ] **Step 4: Tag the milestone**
 
 ```powershell
-git tag phase-1-aot-verified
+git tag phase-1-publish-verified
 ```
+(Tag name changed from `phase-1-publish-verified` since AOT was dropped.)
 
 ---
 
@@ -539,12 +542,16 @@ git commit -m "chore: pre-create folder structure"
 
 ---
 
+## Lock-file mode (Phase 1 deviation, applies to all phases)
+
+`RestoreLockedMode=true` is **only** set on `src/YtDlpTool/YtDlpTool.csproj` (the WPF app with a pinned `RuntimeIdentifier=win-x64`). For the Domain library, the Process library, and both test projects, only `RestorePackagesWithLockFile=true` is set — locked mode is omitted because `NSec.Cryptography` brings in `libsodium`, a RID-specific native package. With locked mode enforced on libraries, the lock file can only describe one RID-state, and the solution alternates between `dotnet build` (no RID) and `dotnet publish -r win-x64` (which both rewrite the lock to incompatible states, breaking the other workflow). Lock files are still committed and reviewed everywhere.
+
 ## Phase 1 complete gate
 
 - [ ] `dotnet build` of solution: succeeds with 0 warnings
 - [ ] `dotnet test`: 1 test passes (smoke test)
-- [ ] `dotnet publish ... /p:PublishAot=true`: succeeds, exe runs
+- [ ] `dotnet publish -c Release -r win-x64`: succeeds (no NETSDK1168, no IL warnings); single-file exe size 30-120 MB
 - [ ] All five projects (Domain, Process, App, Domain.Tests, Process.Tests) in solution
-- [ ] `git log --oneline` shows ~9 commits in this phase + tag `phase-1-aot-verified`
+- [ ] `git log --oneline` shows ~9 commits in this phase + tag `phase-1-publish-verified`
 
 Proceed to Phase 2.
