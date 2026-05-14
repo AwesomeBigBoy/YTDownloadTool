@@ -5,8 +5,8 @@ public sealed class AppConfig
     public int ConcurrentDownloads { get; set; } = 2;
     public string DefaultSaveDirectory { get; set; } = "";
     public UpdateCheckFrequency YtDlpCheckFrequency { get; set; } = UpdateCheckFrequency.Weekly;
-    public UpdateCheckFrequency FfmpegCheckFrequency { get; set; } = UpdateCheckFrequency.Monthly;
-    public UpdateCheckFrequency AppCheckFrequency { get; set; } = UpdateCheckFrequency.Monthly;
+    public UpdateCheckFrequency FfmpegCheckFrequency { get; set; } = UpdateCheckFrequency.Weekly;
+    public UpdateCheckFrequency AppCheckFrequency { get; set; } = UpdateCheckFrequency.Weekly;
     public ThemePreference Theme { get; set; } = ThemePreference.System;
     public string LanguageCode { get; set; } = "zh-TW";
     public DateTimeOffset? LastYtDlpCheck { get; set; }
