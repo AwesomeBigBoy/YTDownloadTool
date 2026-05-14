@@ -100,8 +100,8 @@ public sealed class AppHost : IDisposable
 
         var installed = new InstalledVersions(
             App: ThisVersion(),
-            YtDlp: ProbeYtDlpVersion(),
-            Ffmpeg: ProbeFfmpegVersion());
+            YtDlp: await ProbeYtDlpVersionAsync().ConfigureAwait(false),
+            Ffmpeg: await ProbeFfmpegVersionAsync().ConfigureAwait(false));
 
         var availability = await UpdateChecker.CheckAsync(installed, ct).ConfigureAwait(false);
 
@@ -137,43 +137,38 @@ public sealed class AppHost : IDisposable
         };
     }
 
-    private string ProbeYtDlpVersion()
+    private async Task<string> ProbeYtDlpVersionAsync()
     {
-        // Probe by running `--version` synchronously with a tiny timeout. Best-effort.
+        // Probe by running `--version` through ProcessSandbox with a 5-second timeout. Best-effort.
         try
         {
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = Path.Combine(Paths.BinDirectory, "yt-dlp.exe"),
-                Arguments = "--version",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = System.Diagnostics.Process.Start(psi);
-            if (p is null) return "";
-            if (!p.WaitForExit(2000)) { try { p.Kill(); } catch { } return ""; }
-            return p.StandardOutput.ReadToEnd().Trim();
+            var args = new ProcessStartArguments(
+                ExecutablePath: Path.Combine(Paths.BinDirectory, "yt-dlp.exe"),
+                Arguments: new[] { "--version" },
+                Timeout: TimeSpan.FromSeconds(5),
+                StdoutByteLimit: 64 * 1024);
+            var output = new System.Text.StringBuilder();
+            var exit = await ProcessSandbox.RunAsync(args, l => { lock (output) output.AppendLine(l.Text); }).ConfigureAwait(false);
+            return exit.ExitCode == 0 ? output.ToString().Trim() : "";
         }
         catch { return ""; }
     }
 
-    private string ProbeFfmpegVersion()
+    private async Task<string> ProbeFfmpegVersionAsync()
     {
         try
         {
-            var psi = new System.Diagnostics.ProcessStartInfo
+            var args = new ProcessStartArguments(
+                ExecutablePath: Path.Combine(Paths.BinDirectory, "ffmpeg.exe"),
+                Arguments: new[] { "-version" },
+                Timeout: TimeSpan.FromSeconds(5),
+                StdoutByteLimit: 64 * 1024);
+            string? firstLine = null;
+            var exit = await ProcessSandbox.RunAsync(args, l =>
             {
-                FileName = Path.Combine(Paths.BinDirectory, "ffmpeg.exe"),
-                Arguments = "-version",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = System.Diagnostics.Process.Start(psi);
-            if (p is null) return "";
-            if (!p.WaitForExit(2000)) { try { p.Kill(); } catch { } return ""; }
-            var firstLine = p.StandardOutput.ReadLine() ?? "";
+                if (firstLine is null) firstLine = l.Text;
+            }).ConfigureAwait(false);
+            if (exit.ExitCode != 0 || string.IsNullOrEmpty(firstLine)) return "";
             // "ffmpeg version 7.1 ..." → take "7.1"
             var parts = firstLine.Split(' ');
             return parts.Length >= 3 ? parts[2] : "";
