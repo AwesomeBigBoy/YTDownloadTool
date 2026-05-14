@@ -1,11 +1,13 @@
 using System.Windows;
 using System.Windows.Threading;
+using YtDlpTool.Services;
 
 namespace YtDlpTool;
 
 public partial class App : Application
 {
     public AppHost? Host { get; private set; }
+    public ThemeService ThemeService { get; private set; } = null!;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -14,6 +16,8 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException += OnTaskException;
 
         Host = new AppHost();
+        ThemeService = new ThemeService(this);
+        ThemeService.Apply(Host.Config.Theme);
         base.OnStartup(e);
 
         _ = Host.StartBackgroundUpdateCheckAsync(_appShutdown.Token);

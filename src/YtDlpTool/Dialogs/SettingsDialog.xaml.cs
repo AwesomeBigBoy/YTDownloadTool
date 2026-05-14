@@ -85,6 +85,7 @@ public partial class SettingsDialog : Window
         cfg.FfmpegCheckFrequency = EnableFfmpegUpdates.IsChecked == true ? UpdateCheckFrequency.Monthly : UpdateCheckFrequency.Never;
         cfg.Theme = ParseTheme(ThemeCombo);
         _host.ConfigStore.Save(cfg);
+        ((App)Application.Current).ThemeService.Apply(cfg.Theme);
         DialogResult = true;
         Close();
     }
