@@ -37,7 +37,12 @@ public static class SigstoreVerifier
         if (bundle is null)
             return SigstoreVerificationResult.Fail("簽章資料無內容");
 
+        // Cosign sign-blob emits verificationMaterial.x509CertificateChain.certificates[0].rawBytes,
+        // while older / alternative producers may use verificationMaterial.certificate.rawBytes.
+        // Accept both shapes.
         var certRaw = bundle.VerificationMaterial.Certificate.RawBytes;
+        if (string.IsNullOrWhiteSpace(certRaw) && bundle.VerificationMaterial.X509CertificateChain.Certificates.Length > 0)
+            certRaw = bundle.VerificationMaterial.X509CertificateChain.Certificates[0].RawBytes;
         if (string.IsNullOrWhiteSpace(certRaw))
             return SigstoreVerificationResult.Fail("簽章缺少憑證");
 

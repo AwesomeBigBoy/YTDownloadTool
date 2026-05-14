@@ -10,12 +10,18 @@ public sealed class SigstoreBundle
 public sealed class SigstoreVerificationMaterial
 {
     public SigstoreCertChain Certificate { get; set; } = new();
+    public SigstoreCertificateChain X509CertificateChain { get; set; } = new();
     public SigstoreTlogEntry[] TlogEntries { get; set; } = Array.Empty<SigstoreTlogEntry>();
 }
 
 public sealed class SigstoreCertChain
 {
     public string RawBytes { get; set; } = "";
+}
+
+public sealed class SigstoreCertificateChain
+{
+    public SigstoreCertChain[] Certificates { get; set; } = Array.Empty<SigstoreCertChain>();
 }
 
 public sealed class SigstoreTlogEntry
