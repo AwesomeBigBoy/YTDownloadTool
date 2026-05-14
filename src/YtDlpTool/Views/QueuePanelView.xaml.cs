@@ -28,10 +28,4 @@ public partial class QueuePanelView : UserControl
     }
 
     private void UpdateCount(int n) => CountRun.Text = $" ({n})";
-
-    private void OnCancelClicked(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button b && b.Tag is Guid id && DataContext is MainViewModel vm)
-            vm.CancelJobCommand.Execute(id);
-    }
 }

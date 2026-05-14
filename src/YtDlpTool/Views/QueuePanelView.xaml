@@ -56,14 +56,12 @@
                                                Text="{Binding Converter={StaticResource QueueMetaConverter}}" />
                                 </StackPanel>
                                 <Button Grid.Column="3"
-                                        Background="Transparent" BorderThickness="0"
+                                        Style="{StaticResource IconButton}"
                                         Content="✕"
-                                        FontSize="14"
-                                        Foreground="{StaticResource Brush.TextTertiary}"
-                                        Cursor="Hand"
+                                        FontSize="13"
                                         Margin="8,0,0,0"
-                                        Tag="{Binding Id}"
-                                        Click="OnCancelClicked" />
+                                        Command="{Binding DataContext.CancelJobCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding Id}" />
                             </Grid>
                         </Border>
                     </DataTemplate>
