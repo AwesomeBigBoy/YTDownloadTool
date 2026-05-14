@@ -17,6 +17,11 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
         IProgress<DownloadProgressSnapshot> progress,
         CancellationToken cancellationToken)
     {
+        // Materialize the save directory just-in-time. yt-dlp does not reliably create
+        // missing parent paths in --output templates; AppHost no longer pre-creates the
+        // default folder so we ensure it exists right before launching the process.
+        try { Directory.CreateDirectory(job.SaveDirectory); } catch { }
+
         var sanitizedStem = FileNameSanitizer.Sanitize(job.Title);
         var request = new DownloadRequest(
             Url: job.Url,
