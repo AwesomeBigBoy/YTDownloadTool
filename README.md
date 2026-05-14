@@ -2,11 +2,9 @@
 
 A lightweight Windows desktop YouTube downloader built on yt-dlp. Aurora Glass UI, hardened security, portable folder distribution, one-click Sigstore-verified updates.
 
-> **Note:** The URLs in this README use `placeholder-owner/YtDlpTool` as a stand-in. This repo does not have a real GitHub remote yet. Before the first public release, search-and-replace `placeholder-owner/YtDlpTool` throughout this README, `src/YtDlpTool/AppHost.cs`, and `src/YtDlpTool/Dialogs/SettingsDialog.xaml.cs` with the real `<owner>/<repo>`.
-
 ## Install
 
-1. Download `YtDlpTool-vX.Y.Z-win-x64.zip` from [Releases](https://github.com/placeholder-owner/YtDlpTool/releases/latest).
+1. Download `YtDlpTool-vX.Y.Z-win-x64.zip` from [Releases](https://github.com/AwesomeBigBoy/YTDownloadTool/releases/latest).
 2. Unzip anywhere. No installation required.
 3. Run `YtDlpTool.exe`.
 
@@ -41,7 +39,7 @@ Each release includes Sigstore signatures. To verify locally with cosign:
 ```pwsh
 cosign verify-blob `
   --bundle YtDlpTool.exe.sigstore `
-  --certificate-identity-regexp "^https://github\.com/placeholder-owner/YtDlpTool/\.github/workflows/release\.yml@refs/tags/v.*$" `
+  --certificate-identity-regexp "^https://github\.com/AwesomeBigBoy/YTDownloadTool/\.github/workflows/release\.yml@refs/tags/v.*$" `
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" `
   YtDlpTool.exe
 ```
