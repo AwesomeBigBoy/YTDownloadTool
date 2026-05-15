@@ -118,6 +118,7 @@ public partial class SettingsDialog : Window
         UpdateProgressBar.Visibility = Visibility.Visible;
         UpdateProgressBar.IsIndeterminate = true;
         UpdateStatusText.Text = "檢查中…";
+        OpenDiagnosticsLogLink.Visibility = Visibility.Collapsed;
 
         try
         {
@@ -133,10 +134,18 @@ public partial class SettingsDialog : Window
                 UpdateStatusText.Text = availability.FailureReason is null
                     ? "已是最新版本"
                     : $"檢查失敗：{availability.FailureReason}";
+                // Fix 2 (v1.1.6): surface the 顯示診斷詳情 link only when the check
+                // actually failed, so the user can inspect today's log entries.
+                OpenDiagnosticsLogLink.Visibility = availability.FailureReason is null
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
                 await Task.Delay(2000, ct).ConfigureAwait(true);
                 UpdateStatusText.Visibility = Visibility.Collapsed;
+                OpenDiagnosticsLogLink.Visibility = Visibility.Collapsed;
                 return;
             }
+            // Successful availability path: any previously-shown diagnostic link hides.
+            OpenDiagnosticsLogLink.Visibility = Visibility.Collapsed;
 
             await ApplyUpdateAsync(availability.NewerFiles, ct).ConfigureAwait(true);
         }
@@ -146,6 +155,7 @@ public partial class SettingsDialog : Window
             UpdateProgressBar.IsIndeterminate = false;
             UpdateProgressBar.Visibility = Visibility.Collapsed;
             UpdateStatusText.Text = $"更新失敗：{ex.Message}";
+            OpenDiagnosticsLogLink.Visibility = Visibility.Visible;
         }
         finally
         {
@@ -205,6 +215,7 @@ public partial class SettingsDialog : Window
         RedownloadProgressBar.Visibility = Visibility.Visible;
         RedownloadProgressBar.IsIndeterminate = true;
         RedownloadStatusText.Text = "取得元件清單…";
+        OpenDiagnosticsLogLinkAdvanced.Visibility = Visibility.Collapsed;
 
         try
         {
@@ -221,6 +232,7 @@ public partial class SettingsDialog : Window
                 RedownloadProgressBar.IsIndeterminate = false;
                 RedownloadProgressBar.Visibility = Visibility.Collapsed;
                 RedownloadStatusText.Text = $"取得清單失敗：{availability.FailureReason ?? "manifest missing"}";
+                OpenDiagnosticsLogLinkAdvanced.Visibility = Visibility.Visible;
                 return;
             }
 
@@ -232,8 +244,10 @@ public partial class SettingsDialog : Window
                 RedownloadProgressBar.IsIndeterminate = false;
                 RedownloadProgressBar.Visibility = Visibility.Collapsed;
                 RedownloadStatusText.Text = "清單中找不到 yt-dlp/ffmpeg 元件";
+                OpenDiagnosticsLogLinkAdvanced.Visibility = Visibility.Visible;
                 return;
             }
+            OpenDiagnosticsLogLinkAdvanced.Visibility = Visibility.Collapsed;
 
             RedownloadProgressBar.IsIndeterminate = false;
             RedownloadProgressBar.Value = 0;
@@ -253,6 +267,7 @@ public partial class SettingsDialog : Window
             else
             {
                 RedownloadStatusText.Text = $"重新下載失敗：{result.FailureReason}";
+                OpenDiagnosticsLogLinkAdvanced.Visibility = Visibility.Visible;
             }
         }
         catch (OperationCanceledException) { /* dialog closed */ }
@@ -261,6 +276,7 @@ public partial class SettingsDialog : Window
             RedownloadProgressBar.IsIndeterminate = false;
             RedownloadProgressBar.Visibility = Visibility.Collapsed;
             RedownloadStatusText.Text = $"重新下載失敗：{ex.Message}";
+            OpenDiagnosticsLogLinkAdvanced.Visibility = Visibility.Visible;
         }
         finally
         {
@@ -282,5 +298,33 @@ public partial class SettingsDialog : Window
             UpdateApplyStage.Failed             => "重新下載失敗",
             _                                   => RedownloadStatusText.Text
         };
+    }
+
+    /// <summary>
+    /// Fix 2 (v1.1.6): opens the newest log file in Notepad so the user can capture the
+    /// update.check.* trace for an IT bug report. Shared by the 更新 and 進階 sections;
+    /// both surface this link only when the corresponding action failed. The newest .log
+    /// is preferred over today's date because dispose/flush can race on log rollover.
+    /// </summary>
+    private void OnOpenLatestLogClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // Flush before reading: AppLogger buffers entries until the day-file rolls
+            // over or Dispose() runs. Without this, the user might open a log that's
+            // missing the entries that triggered them to click the link.
+            _host.Logger.Flush();
+
+            var logDir = _host.Paths.LogsDirectory;
+            if (!Directory.Exists(logDir)) return;
+            var newest = new DirectoryInfo(logDir).GetFiles("*.log")
+                .OrderByDescending(f => f.LastWriteTime).FirstOrDefault();
+            if (newest is null) return;
+            System.Diagnostics.Process.Start(new ProcessStartInfo("notepad.exe", newest.FullName)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch { /* best-effort: nothing actionable for the user if notepad can't launch */ }
     }
 }

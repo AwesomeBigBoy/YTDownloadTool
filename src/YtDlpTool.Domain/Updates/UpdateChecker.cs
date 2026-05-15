@@ -1,5 +1,6 @@
 using System.Net.Http;
 using System.Text.Json;
+using YtDlpTool.Domain.Logging;
 using YtDlpTool.Domain.Persistence;
 using YtDlpTool.Domain.Security;
 
@@ -13,6 +14,11 @@ public sealed class UpdateChecker
     private readonly SigstoreVerifierOptions _sigstoreOptions;
     private readonly string _owner;
     private readonly string _repo;
+    // v1.1.6: optional structured logger so users can see *why* the check fell back
+    // to the generic "找不到最新版本" message (HTTPS inspection, missing manifest
+    // asset on the latest release, sigstore verify failure, etc.) by inspecting
+    // the most recent log file from Settings → 顯示診斷詳情.
+    private readonly AppLogger? _logger;
 
     /// <summary>
     /// Friendly Chinese message surfaced when GitHub has no release marked "latest" AND
@@ -31,18 +37,29 @@ public sealed class UpdateChecker
     /// </summary>
     private const int RecentReleasesScanLimit = 30;
 
-    public UpdateChecker(IUpdateHttpClient http, SigstoreVerifierOptions sigstoreOptions, string owner, string repo)
+    public UpdateChecker(
+        IUpdateHttpClient http,
+        SigstoreVerifierOptions sigstoreOptions,
+        string owner,
+        string repo,
+        AppLogger? logger = null)
     {
         _http = http;
         _sigstoreOptions = sigstoreOptions;
         _owner = owner;
         _repo = repo;
+        _logger = logger;
     }
 
     public async Task<UpdateAvailability> CheckAsync(
         InstalledVersions installed,
         CancellationToken cancellationToken)
     {
+        Log("update.check.start", new Dictionary<string, string>
+        {
+            ["owner"] = _owner,
+            ["repo"] = _repo
+        });
         try
         {
             // Try /releases/latest first — if it returns a release that has BOTH a
@@ -55,22 +72,47 @@ public sealed class UpdateChecker
             {
                 primary = await _http.GetLatestReleaseAsync(_owner, _repo, cancellationToken).ConfigureAwait(false);
             }
-            catch (HttpRequestException)
+            catch (HttpRequestException ex)
             {
+                Log("update.check.primary", new Dictionary<string, string>
+                {
+                    ["tag"] = "none",
+                    ["usable"] = "false",
+                    ["http_error"] = ex.Message
+                });
                 primary = null;
             }
 
             UpdateAvailability? lastTerminalFailure = null;
-            if (primary is not null && IsUsableRelease(primary))
+            if (primary is not null)
             {
-                var primaryResult = await TryEvaluateReleaseAsync(primary, installed, cancellationToken).ConfigureAwait(false);
-                if (primaryResult.ShouldReturn)
-                    return primaryResult.Availability!;
-                // Record terminal failure (signature / manifest-parse) so the recent
-                // fallback can still surface it if no later release is verifiable.
-                if (primaryResult.Availability is not null)
-                    lastTerminalFailure = primaryResult.Availability;
-                // Otherwise fall through to recent-release fallback.
+                var primaryUsable = IsUsableRelease(primary);
+                Log("update.check.primary", new Dictionary<string, string>
+                {
+                    ["tag"] = primary.TagName ?? "none",
+                    ["usable"] = primaryUsable ? "true" : "false"
+                });
+                if (primaryUsable)
+                {
+                    var primaryResult = await TryEvaluateReleaseAsync(primary, installed, cancellationToken).ConfigureAwait(false);
+                    if (primaryResult.ShouldReturn)
+                    {
+                        Log("update.check.result", new Dictionary<string, string>
+                        {
+                            ["status"] = primaryResult.Availability!.HasUpdate ? "update_available" : "up_to_date"
+                        });
+                        return primaryResult.Availability!;
+                    }
+                    // Record terminal failure (signature / manifest-parse) so the recent
+                    // fallback can still surface it if no later release is verifiable.
+                    if (primaryResult.Availability is not null)
+                        lastTerminalFailure = primaryResult.Availability;
+                    // Otherwise fall through to recent-release fallback.
+                }
+            }
+            else
+            {
+                // Already logged the HTTP error above; nothing further to record.
             }
 
             // Fallback: enumerate recent releases (newest first). Pick the first that
@@ -83,10 +125,25 @@ public sealed class UpdateChecker
             {
                 recent = await _http.GetRecentReleasesAsync(_owner, _repo, RecentReleasesScanLimit, cancellationToken).ConfigureAwait(false);
             }
-            catch (HttpRequestException)
+            catch (HttpRequestException ex)
             {
-                return lastTerminalFailure ?? NoUpdate(FriendlyMissingLatestMessage);
+                Log("update.check.recent_scan", new Dictionary<string, string>
+                {
+                    ["count"] = "0",
+                    ["usable_count"] = "0",
+                    ["http_error"] = ex.Message
+                });
+                var fallback = lastTerminalFailure ?? NoUpdate(FriendlyMissingLatestMessage);
+                LogResult(fallback, lastTerminalFailure is not null);
+                return fallback;
             }
+
+            var usableCount = recent.Count(IsUsableRelease);
+            Log("update.check.recent_scan", new Dictionary<string, string>
+            {
+                ["count"] = recent.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["usable_count"] = usableCount.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            });
 
             foreach (var candidate in recent)
             {
@@ -97,25 +154,55 @@ public sealed class UpdateChecker
 
                 var attempt = await TryEvaluateReleaseAsync(candidate, installed, cancellationToken).ConfigureAwait(false);
                 if (attempt.ShouldReturn)
+                {
+                    Log("update.check.result", new Dictionary<string, string>
+                    {
+                        ["status"] = attempt.Availability!.HasUpdate ? "update_available" : "up_to_date"
+                    });
                     return attempt.Availability!;
+                }
                 // Record the most recent terminal failure (e.g. signature failure)
                 // in case nothing else works; better than the generic missing-latest.
                 if (attempt.Availability is not null)
                     lastTerminalFailure = attempt.Availability;
             }
 
-            return lastTerminalFailure ?? NoUpdate(FriendlyMissingLatestMessage);
+            var result = lastTerminalFailure ?? NoUpdate(FriendlyMissingLatestMessage);
+            LogResult(result, lastTerminalFailure is not null);
+            return result;
         }
         catch (OperationCanceledException)
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Any other error during the check (DNS, TLS, broken JSON, ...) shouldn't
             // bubble a raw exception to the UI; show a friendly fallback instead.
+            Log("update.check.result", new Dictionary<string, string>
+            {
+                ["status"] = "fallback_friendly_msg",
+                ["exception"] = ex.GetType().Name,
+                ["message"] = ex.Message
+            });
             return NoUpdate(FriendlyMissingLatestMessage);
         }
+    }
+
+    private void LogResult(UpdateAvailability result, bool hadTerminalFailure)
+    {
+        string status;
+        if (result.HasUpdate) status = "update_available";
+        else if (result.FailureReason == FriendlyMissingLatestMessage) status = "fallback_friendly_msg";
+        else if (hadTerminalFailure && !string.IsNullOrEmpty(result.FailureReason))
+            status = "specific_failure: " + result.FailureReason;
+        else status = "up_to_date";
+        Log("update.check.result", new Dictionary<string, string> { ["status"] = status });
+    }
+
+    private void Log(string category, IReadOnlyDictionary<string, string> fields)
+    {
+        _logger?.Info(category, fields);
     }
 
     /// <summary>
@@ -148,20 +235,33 @@ public sealed class UpdateChecker
         InstalledVersions installed,
         CancellationToken ct)
     {
+        var tag = release.TagName ?? "(notag)";
         var manifestAsset = release.Assets?.FirstOrDefault(a => a.Name == "manifest.json");
         var manifestSigAsset = release.Assets?.FirstOrDefault(a => a.Name == "manifest.json.sigstore");
         if (manifestAsset?.BrowserDownloadUrl is null || manifestSigAsset?.BrowserDownloadUrl is null)
+        {
+            LogEvaluate(tag, "manifest-fetch-failed");
             return new ReleaseAttempt(false, null);
+        }
 
         string manifestJson;
         string manifestSigJson;
         try
         {
             manifestJson = await _http.GetStringAsync(manifestAsset.BrowserDownloadUrl, ct).ConfigureAwait(false);
+        }
+        catch (HttpRequestException)
+        {
+            LogEvaluate(tag, "manifest-fetch-failed");
+            return new ReleaseAttempt(false, null);
+        }
+        try
+        {
             manifestSigJson = await _http.GetStringAsync(manifestSigAsset.BrowserDownloadUrl, ct).ConfigureAwait(false);
         }
         catch (HttpRequestException)
         {
+            LogEvaluate(tag, "sig-fetch-failed");
             return new ReleaseAttempt(false, null);
         }
 
@@ -172,6 +272,7 @@ public sealed class UpdateChecker
 
         if (!sigVerify.IsValid)
         {
+            LogEvaluate(tag, "sig-verify-failed: " + (sigVerify.FailureReason ?? ""));
             // Signature failure is terminal-ish: bubble it as the lastTerminalFailure
             // so we don't mask a real signing issue with the generic missing-latest
             // message, but allow the loop to keep scanning in case an earlier release
@@ -187,10 +288,12 @@ public sealed class UpdateChecker
         }
         catch (JsonException)
         {
+            LogEvaluate(tag, "manifest-parse-failed");
             return new ReleaseAttempt(false, NoUpdate("manifest 解析失敗"));
         }
         if (manifest is null || manifest.Files.Count == 0)
         {
+            LogEvaluate(tag, "empty-files");
             // Empty Files list = manifest is structurally valid but useless. Treat
             // as "try the next release" rather than declaring victory with zero files.
             return new ReleaseAttempt(false, null);
@@ -210,7 +313,17 @@ public sealed class UpdateChecker
                 newer.Add(f);
         }
 
+        LogEvaluate(tag, newer.Count > 0 ? "ok-has-update" : "ok-no-update");
         return new ReleaseAttempt(true, new UpdateAvailability(newer.Count > 0, manifest, newer, null));
+    }
+
+    private void LogEvaluate(string tag, string status)
+    {
+        _logger?.Info("update.check.evaluate", new Dictionary<string, string>
+        {
+            ["tag"] = tag,
+            ["status"] = status
+        });
     }
 
     private static UpdateAvailability NoUpdate(string? failureReason) =>

@@ -61,7 +61,11 @@ public sealed class AppHost : IDisposable
             ExpectedSanRegex: @"^https://github\.com/AwesomeBigBoy/YTDownloadTool/\.github/workflows/release\.yml@refs/tags/v.*$",
             TrustedRootPem: SigstoreRoots.FulcioRootPem);
 
-        UpdateChecker = new UpdateChecker(UpdateHttp, sigstoreOpts, owner: "AwesomeBigBoy", repo: "YTDownloadTool");
+        // Fix 2 (v1.1.6): pass AppLogger so the checker writes update.check.* events
+        // for each fallback step. Lets the user diagnose "找不到最新版本" via the
+        // 顯示診斷詳情 link in Settings → 更新.
+        UpdateChecker = new UpdateChecker(UpdateHttp, sigstoreOpts,
+            owner: "AwesomeBigBoy", repo: "YTDownloadTool", logger: Logger);
         UpdateApplier = new UpdateApplier(UpdateHttp, sigstoreOpts, Paths, Logger);
 
         var executor = new YtDlpDownloadExecutor(YtDlp);
