@@ -24,6 +24,35 @@ public sealed class YtDlpRunner
     // first-output ms < 1s) from "fragment retry loop" (lots of bytes,
     // first-output ms < 1s, timed_out=true). Hashes URLs the way AppLogger
     // does elsewhere — no plain video URLs ever land in the log file.
+    // v1.1.25: flags that previously had to live in the user's
+    // %APPDATA%\yt-dlp\config.txt for the app to work on their managed-network
+    // setup. Baking them into every invocation eliminates the "tool depends
+    // on hidden global config" failure mode that would catch every new user.
+    //
+    //   --force-ipv4         Prefer IPv4; some managed networks have broken
+    //                        or blocked IPv6 and yt-dlp's getaddrinfo-then-try
+    //                        loop hangs on the IPv6 attempt before falling back.
+    //   --concurrent-fragments 8
+    //                        DASH-fragmented downloads run 8 fragments in
+    //                        parallel, dramatically faster on healthy networks
+    //                        and tolerant of single-fragment retries.
+    //   --continue           Resume partial downloads instead of starting over.
+    //                        Combined with --part (yt-dlp default) this means
+    //                        a flaky network drop only retries the affected
+    //                        fragment, not the whole file.
+    //   --throttled-rate 200K
+    //                        If a fragment's speed drops below 200 KiB/s,
+    //                        treat it as a stall and retry. On managed networks
+    //                        with intermittent throttling this keeps the
+    //                        download moving instead of waiting forever.
+    private static IEnumerable<string> BuildCommonCliArgs()
+    {
+        yield return "--force-ipv4";
+        yield return "--concurrent-fragments"; yield return "8";
+        yield return "--continue";
+        yield return "--throttled-rate";       yield return "200K";
+    }
+
     private void LogInvokeBegin(string operation, IReadOnlyList<string> arguments, string? urlForHashing, IReadOnlyDictionary<string, string>? extraEnv)
     {
         if (_logger is null) return;
@@ -88,10 +117,18 @@ public sealed class YtDlpRunner
             {
                 "--skip-download",
                 "--write-info-json",
+                // v1.1.25: also have yt-dlp pull the thumbnail. Our app's HttpClient
+                // can't reliably reach i.ytimg.com on managed hosts (same Apex
+                // One Web Reputation block that hit the JSON fetch — only our
+                // app's process is filtered; yt-dlp's TTY-mode invocation is not).
+                // Routing the thumbnail through yt-dlp gets us a local jpg/webp
+                // file we can load from disk without any HTTP from our process.
+                "--write-thumbnail",
                 "--no-playlist",
                 "--no-warnings",
                 "--output", outputTemplate,
             };
+            fetchArgs.AddRange(BuildCommonCliArgs());
             if (_allowUntrustedCerts) fetchArgs.Add("--no-check-certificates");
             AddSystemProxyArgs(fetchArgs);
             fetchArgs.Add("--");
@@ -145,7 +182,13 @@ public sealed class YtDlpRunner
             if (dto is null || string.IsNullOrEmpty(dto.Id) || string.IsNullOrEmpty(dto.Title))
                 return new MetadataFetchResult(false, null, "missing fields");
 
-            return new MetadataFetchResult(true, MapToMetadata(dto), null);
+            // v1.1.25: copy the yt-dlp-downloaded thumbnail into a persistent
+            // cache dir and substitute the local path into ThumbnailUrl. The
+            // InMemoryThumbnailLoader detects file:// URLs and reads from disk
+            // instead of issuing an HttpClient request our app would not be
+            // able to complete on managed hosts.
+            var thumbLocal = TryCopyThumbnailToCache(infoDir, dto.Id);
+            return new MetadataFetchResult(true, MapToMetadata(dto, thumbLocal), null);
         }
         finally
         {
@@ -153,7 +196,40 @@ public sealed class YtDlpRunner
         }
     }
 
-    private static VideoMetadata MapToMetadata(YtDlpMetadataDto dto)
+    private static string? TryCopyThumbnailToCache(string sourceDir, string videoId)
+    {
+        try
+        {
+            var found = Directory.GetFiles(sourceDir)
+                .Where(p =>
+                {
+                    var ext = Path.GetExtension(p).ToLowerInvariant();
+                    return ext is ".jpg" or ".jpeg" or ".webp" or ".png";
+                })
+                .FirstOrDefault();
+            if (found is null) return null;
+
+            var cacheDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "YtDlpTool", "thumb-cache");
+            Directory.CreateDirectory(cacheDir);
+
+            // Strip any disallowed chars from videoId before using it in a path.
+            var safeId = string.Concat(videoId.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_'));
+            var ext2 = Path.GetExtension(found);
+            var dst = Path.Combine(cacheDir, safeId + ext2);
+            File.Copy(found, dst, overwrite: true);
+            return new Uri(dst).AbsoluteUri;
+        }
+        catch
+        {
+            // Cache failure is non-fatal — UI just falls back to no thumbnail
+            // (or the remote URL if our HttpClient happens to reach the CDN).
+            return null;
+        }
+    }
+
+    private static VideoMetadata MapToMetadata(YtDlpMetadataDto dto, string? localThumbnailUri = null)
     {
         var formats = (dto.Formats ?? Array.Empty<YtDlpFormatDto>())
             .Select(f => new VideoFormat(
@@ -180,7 +256,7 @@ public sealed class YtDlpRunner
             Title: dto.Title ?? "",
             Channel: dto.Uploader ?? "",
             Duration: TimeSpan.FromSeconds(dto.Duration ?? 0),
-            ThumbnailUrl: dto.Thumbnail ?? "",
+            ThumbnailUrl: localThumbnailUri ?? dto.Thumbnail ?? "",
             Formats: formats,
             Subtitles: subtitles);
     }
@@ -198,19 +274,13 @@ public sealed class YtDlpRunner
             "--progress-template",
             "[download] {\"percent\":%(progress._percent_str)s,\"speed\":\"%(progress._speed_str)s\",\"eta\":\"%(progress._eta_str)s\"}",
             "--no-playlist",
-            // Fix B (v1.1.8): KEEP warnings on the download path. yt-dlp's WARNING
-            // lines surface the actual reason a clip download stalls (e.g. "Unable
-            // to extract DASH manifest, falling back to single stream") and feed
-            // ProcessSandbox.RecentStdout so bug reports actually have a
-            // chain of evidence. The metadata path still uses --no-warnings because
-            // its stdout is parsed as JSON.
-            //
-            // Retries dropped from 10 to 3 and retry-sleep from 5s to 3s. With the
-            // old 10x5s the silent retry loop alone could exceed the 90s watchdog;
-            // 3 retries x 3s = 9s max silence per network blip, with warnings now
-            // emitting during each retry so the watchdog clock resets.
-            "--retries", "3",
-            "--fragment-retries", "3",
+            // v1.1.25: retry counts bumped back up to 10 — the v1.1.8 reasoning
+            // (silent retry loop > 90s watchdog) no longer applies because v1.1.23
+            // dropped pipe-based output capture entirely, so retry verbosity has
+            // no progress-parser to confuse. The user's pre-existing yt-dlp config
+            // also uses 10, matching real-world managed-network reliability needs.
+            "--retries", "10",
+            "--fragment-retries", "10",
             "--retry-sleep", "3",
             // ARCHITECTURAL COMMITMENT (v1.1.11, refined v1.1.12): we deliberately
             // do NOT pass --extractor-args player_client=... here, even though it
@@ -245,6 +315,7 @@ public sealed class YtDlpRunner
             "--output",
             BuildOutputTemplate(request),
         });
+        argList.AddRange(BuildCommonCliArgs());
         // v1.1.13: subtitle download moved to DownloadSubtitlesOnlyAsync. The
         // media-only invocation NEVER passes --write-subs because doing so
         // changes the YouTube player_response path yt-dlp follows for the media
@@ -383,10 +454,11 @@ public sealed class YtDlpRunner
             "--write-auto-subs",
             "--sub-langs", string.Join(',', languageCodes),
             "--no-playlist",
-            "--retries", "3",
+            "--retries", "10",
             "--retry-sleep", "3",
             "--output", Path.Combine(saveDirectory, sanitizedFileStem + ".%(ext)s"),
         };
+        argList.AddRange(BuildCommonCliArgs());
         argList.AddRange(BuildFfmpegLocationArgs());
         AddSystemProxyArgs(argList);
         if (_allowUntrustedCerts) argList.Add("--no-check-certificates");
