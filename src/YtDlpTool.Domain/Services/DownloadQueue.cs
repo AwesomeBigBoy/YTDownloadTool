@@ -335,13 +335,19 @@ public sealed class DownloadQueue : IDisposable
                     // Log the real failure detail (truncated raw stderr) alongside the code so
                     // bug reports actually contain the yt-dlp diagnosis instead of just
                     // the bucket name. This is a local-only log; we don't strip URLs.
+                    // Fix 2: always emit the details field, with "(empty)" as a
+                    // sentinel when stderr was empty/null. The field had previously
+                    // collapsed to "" on rule matches that didn't propagate RawDetails,
+                    // making bug reports useless. ErrorMapper now sets RawDetails
+                    // on every code path, but keep the sentinel so a future regression
+                    // still surfaces in logs instead of vanishing.
                     _logger?.Warn("download.failed", new Dictionary<string, string>
                     {
                         ["job_hash"] = jobHash,
                         ["url_hash"] = urlHash,
                         ["error_code"] = err.ErrorCode,
                         ["category"] = err.Category.ToString(),
-                        ["details"] = err.RawDetails ?? ""
+                        ["details"] = string.IsNullOrEmpty(err.RawDetails) ? "(empty)" : err.RawDetails
                     });
                     _onEvent(new JobFailedEvent(job, err));
                 }
