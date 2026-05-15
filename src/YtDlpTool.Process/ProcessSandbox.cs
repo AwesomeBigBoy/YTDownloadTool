@@ -145,6 +145,31 @@ public static class ProcessSandbox
         try { await Task.Delay(KillGrace, CancellationToken.None).ConfigureAwait(false); } catch { }
     }
 
+    // Env vars we DELIBERATELY pass through from the parent process. Stripped initially
+    // out of paranoia (防 PATH 劫持 per spec §5.2) but the strip was too aggressive:
+    // managed environments set HTTP_PROXY/HTTPS_PROXY via GPO and yt-dlp/Python only
+    // sees the proxy via these env vars. Bare yt-dlp CLI on those machines works because
+    // it inherits the full environment; we were blocking ourselves.
+    //
+    // PATH itself stays sandboxed (rewritten to <bin>;<system32>) — we still don't
+    // inherit the user's PATH because that's the actual hijack vector.
+    private static readonly string[] PassThroughEnvVars =
+    {
+        // Proxy configuration — the main reason this list exists.
+        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+        "http_proxy", "https_proxy", "no_proxy",
+        "ALL_PROXY", "all_proxy",
+
+        // SSL / CA bundle — managed networks with SSL inspection point Python urllib
+        // at an site-installed CA bundle via these vars.
+        "SSL_CERT_FILE", "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+
+        // User-profile paths — yt-dlp's cookie handling and some config paths read these.
+        "USERPROFILE", "USERNAME", "USERDOMAIN",
+        "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH",
+    };
+
     private static void ConfigureSandboxedEnvironment(ProcessStartInfo info, string exePath)
     {
         info.EnvironmentVariables.Clear();
@@ -158,5 +183,12 @@ public static class ProcessSandbox
         info.EnvironmentVariables["Path"] = $"{binDir};{systemDir};{Path.Combine(systemRoot, "System32")}";
         info.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8"; // yt-dlp respects this
         info.EnvironmentVariables["PYTHONUTF8"] = "1";
+
+        foreach (var name in PassThroughEnvVars)
+        {
+            var value = Environment.GetEnvironmentVariable(name);
+            if (!string.IsNullOrEmpty(value))
+                info.EnvironmentVariables[name] = value;
+        }
     }
 }

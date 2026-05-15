@@ -14,6 +14,14 @@ public sealed class AppConfig
     public DateTimeOffset? LastAppCheck { get; set; }
     public string LogLevel { get; set; } = "Info";
 
+    // White-UI workaround for the rare machine where WPF hardware rendering produces
+    // a blank/white visual tree (older Intel iGPU drivers, RDP sessions, certain AD
+    // GPO configs). When true, App.OnStartup sets RenderOptions.ProcessRenderMode to
+    // SoftwareOnly. Default false — leave hardware acceleration on for the majority.
+    // To toggle: stop the app, edit config.json, set "ForceSoftwareRendering": true,
+    // relaunch.
+    public bool ForceSoftwareRendering { get; set; } = false;
+
     public static AppConfig CreateDefault()
     {
         return new AppConfig

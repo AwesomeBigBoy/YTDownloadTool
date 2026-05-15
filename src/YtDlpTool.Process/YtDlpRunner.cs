@@ -37,7 +37,15 @@ public sealed class YtDlpRunner
             cancellationToken: cancellationToken);
 
         if (exit.ExitCode != 0 || exit.TimedOut || exit.Cancelled)
-            return new MetadataFetchResult(false, null, exit.Stderr);
+        {
+            // v1.1.14: surface stdout-tail in addition to stderr (parity with DownloadAsync),
+            // and prefix an explicit [timeout]/[cancelled] marker so ErrorMapper can route
+            // to the actionable AD-env friendly message instead of "下載失敗（無錯誤訊息）".
+            var diag = BuildDiagnostics(exit);
+            if (exit.TimedOut) diag = "[timeout after 30s]\n" + diag;
+            else if (exit.Cancelled) diag = "[cancelled]\n" + diag;
+            return new MetadataFetchResult(false, null, diag);
+        }
 
         var raw = string.Join('\n', stdoutLines);
         YtDlpMetadataDto? dto;
