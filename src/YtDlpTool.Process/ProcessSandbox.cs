@@ -25,7 +25,20 @@ public static class ProcessSandbox
             FileName = args.ExecutablePath,
             WorkingDirectory = args.WorkingDirectory ?? Path.GetDirectoryName(args.ExecutablePath),
             UseShellExecute = false,
-            CreateNoWindow = true,
+            // v1.1.21: CreateNoWindow=false to test the theory that a console-less
+            // child hangs PyInstaller-frozen yt-dlp during Python init on managed
+            // hosts. The failure signature in v1.1.20 was: yt-dlp.exe spawned (PID
+            // present), ~300 MB RAM (Python loaded), 3% CPU (alive but not progressing),
+            // zero network, zero output for 30 s. The same yt-dlp.exe invoked from
+            // a plain CMD (which has a console) works fine. Console-less invocation
+            // is the only remaining structural difference after v1.1.18's env-inherit
+            // and stdin-close fixes.
+            //
+            // Cost: a brief console window will flash each time yt-dlp or ffmpeg
+            // launches. If this fix works, v1.1.22 will switch to a Win32-allocated
+            // hidden console (CREATE_NEW_CONSOLE + ShowWindow SW_HIDE) so users
+            // get a console-equipped child without the visible flash.
+            CreateNoWindow = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             // v1.1.18: redirect stdin so we can close it immediately after Start.
