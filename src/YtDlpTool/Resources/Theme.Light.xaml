@@ -9,20 +9,13 @@
     <Color x:Key="Color.TextPrimary">#1A1D2E</Color>      <!-- full-opacity deep navy for max contrast on bright bg -->
     <Color x:Key="Color.TextSecondary">#995A6080</Color>  <!-- 60% slate -->
     <Color x:Key="Color.TextTertiary">#665A6080</Color>   <!-- 40% slate -->
-    <!-- 60% white was too prominent on the saturated Aurora gradient — every
-         GlassCard looked wrapped in white tape (user-reported, screenshot 2026-05-15).
-         10% gives the same "glass rim" hint without the hard outline. -->
-    <Color x:Key="Color.GlassBorder">#1AFFFFFF</Color>    <!-- 10% white -->
-    <!-- 88% white was the original "crisp cards over bright gradient" tuning,
-         but on the saturated Aurora gradient it produced a stark contrast
-         between card and background that the user repeatedly reported as a
-         "white border" (v1.1.20 reduced GlassBorder opacity, v1.1.22 zeroed
-         BorderThickness, v1.1.25 removed the DropShadowEffect — none removed
-         the perceived edge). v1.1.27 drops fill to ~55% so the gradient
-         shows through the card and the card-vs-gradient transition becomes
-         a soft tint rather than a hard edge. Text contrast is preserved by
-         TextPrimary staying at full-opacity deep navy (#1A1D2E). -->
-    <Color x:Key="Color.GlassFill">#8CFFFFFF</Color>      <!-- ~55% white -->
+    <!-- v1.1.28: restored to v1.1.16 values. Multiple attempts to "fix" the
+         user-reported white edge (v1.1.20 opacity, v1.1.22 BorderThickness=0,
+         v1.1.25 DropShadow removed, v1.1.27 fill 55%) all made the look
+         progressively worse without removing the edge. User decided the
+         v1.1.16 visual was preferable, white edge included. -->
+    <Color x:Key="Color.GlassBorder">#99FFFFFF</Color>    <!-- 60% white -->
+    <Color x:Key="Color.GlassFill">#E0FFFFFF</Color>      <!-- 88% white — crisp cards over bright gradient -->
     <Color x:Key="Color.AuroraA">#FF5A8F</Color>          <!-- vivid hot pink -->
     <Color x:Key="Color.AuroraB">#FFA940</Color>          <!-- vivid orange-peach -->
     <Color x:Key="Color.AuroraC">#40C8FF</Color>          <!-- vivid sky blue -->

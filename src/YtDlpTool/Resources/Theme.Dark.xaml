@@ -1,19 +1,27 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- Colours · Sunrise Coral palette (dark variant) -->
-    <Color x:Key="Color.Accent">#FF6B6B</Color>
-    <Color x:Key="Color.AccentHover">#E54E4E</Color>
-    <Color x:Key="Color.Danger">#E63946</Color>
-    <Color x:Key="Color.Success">#3DDC97</Color>
-    <Color x:Key="Color.TextPrimary">#EBE5E5F0</Color>    <!-- alpha 92% over near-white -->
-    <Color x:Key="Color.TextSecondary">#8CE5E5F0</Color>  <!-- alpha 55% -->
-    <Color x:Key="Color.TextTertiary">#59E5E5F0</Color>   <!-- alpha 35% -->
-    <Color x:Key="Color.GlassBorder">#4CFFFFFF</Color>
-    <Color x:Key="Color.GlassFill">#4C0F0F1F</Color>      <!-- semi-transparent dark -->
-    <Color x:Key="Color.AuroraA">#6B4C7A</Color>          <!-- deep plum -->
-    <Color x:Key="Color.AuroraB">#4C6B7A</Color>          <!-- deep teal -->
-    <Color x:Key="Color.AuroraC">#7A6B4C</Color>          <!-- deep amber -->
+    <!-- Colours · Midnight Aurora palette (dark variant, v1.1.28 retune)
+         User feedback: previous palette "顏色非常不討喜，會給人一種混濁感"
+         (very unappealing colour, gives a muddy feeling). Two changes:
+           1. GlassFill bumped from 30% → 85% opacity so cards stand out
+              cleanly from the gradient instead of letting the muddy
+              dark-warm gradient bleed through them.
+           2. Aurora colours desaturated and shifted cooler (deep navy / slate /
+              indigo) so the background reads as a calm dark sky rather than
+              a swampy purple-amber haze. -->
+    <Color x:Key="Color.Accent">#FF7B8C</Color>           <!-- softened coral, pops on dark navy -->
+    <Color x:Key="Color.AccentHover">#FF5566</Color>
+    <Color x:Key="Color.Danger">#FF6B7C</Color>
+    <Color x:Key="Color.Success">#5BE3A6</Color>
+    <Color x:Key="Color.TextPrimary">#F0FFFFFF</Color>    <!-- 94% near-white, max-contrast headline text -->
+    <Color x:Key="Color.TextSecondary">#B3FFFFFF</Color>  <!-- 70% near-white, body text -->
+    <Color x:Key="Color.TextTertiary">#80FFFFFF</Color>   <!-- 50% near-white, hint/meta -->
+    <Color x:Key="Color.GlassBorder">#33FFFFFF</Color>    <!-- 20% white rim, soft on dark fill -->
+    <Color x:Key="Color.GlassFill">#D91A2235</Color>      <!-- 85% deep navy — opaque enough for solid card feel -->
+    <Color x:Key="Color.AuroraA">#1F2A4D</Color>          <!-- deep navy -->
+    <Color x:Key="Color.AuroraB">#2C2A4D</Color>          <!-- deep indigo -->
+    <Color x:Key="Color.AuroraC">#1F3A4D</Color>          <!-- deep slate-teal -->
 
     <!-- Brushes (same as light variant — bound to colours above) -->
     <SolidColorBrush x:Key="Brush.Accent" Color="{StaticResource Color.Accent}" />

@@ -121,6 +121,12 @@ public sealed class YtDlpRunner
             var fetchArgs = new List<string>
             {
                 "--dump-single-json",
+                // v1.1.28: -j (--dump-single-json) implies --simulate, which is
+                // "do not write anything to disk" — so --write-thumbnail below
+                // gets silently ignored. --no-simulate undoes that so the
+                // thumbnail file actually lands in <outputTemplate>.<ext>.
+                // --skip-download still suppresses the media download.
+                "--no-simulate",
                 "--skip-download",
                 "--write-thumbnail",
                 "--output", outputTemplate,
@@ -362,8 +368,22 @@ public sealed class YtDlpRunner
                 new[] { "-f", r.ChosenFormat.FormatId, "-x", "--audio-format", InferAudioFormat(r.ChosenFormat) },
             DownloadMode.VideoOnly =>
                 new[] { "-f", r.ChosenFormat.FormatId },
+            // v1.1.28: prefer m4a/AAC audio for the merged mp4. yt-dlp's default
+            // `bestaudio` chooses by bitrate, which on YouTube tends to be Opus
+            // (251) — but Opus in an mp4 container is non-standard and Windows
+            // built-in Media Player won't play it (user feedback).
+            // Format-selector preference list:
+            //   <video>+bestaudio[ext=m4a]   ← AAC in m4a, the universally-played choice
+            //   <video>+bestaudio[acodec=aac] ← any container with AAC
+            //   <video>+bestaudio             ← give up and take best, ffmpeg will mux
             DownloadMode.AudioAndVideo =>
-                new[] { "-f", $"{r.ChosenFormat.FormatId}+bestaudio", "--merge-output-format", "mp4" },
+                new[]
+                {
+                    "-f", $"{r.ChosenFormat.FormatId}+bestaudio[ext=m4a]/" +
+                          $"{r.ChosenFormat.FormatId}+bestaudio[acodec=aac]/" +
+                          $"{r.ChosenFormat.FormatId}+bestaudio",
+                    "--merge-output-format", "mp4",
+                },
             _ => Array.Empty<string>()
         };
     }
