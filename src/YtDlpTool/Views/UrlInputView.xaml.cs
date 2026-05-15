@@ -1,10 +1,10 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using YtDlpTool.Domain.Models;
 using YtDlpTool.Domain.Services;
+using YtDlpTool.Interop;
 using YtDlpTool.Resources;
 using YtDlpTool.ViewModels;
 
@@ -102,11 +102,17 @@ public partial class UrlInputView : UserControl
         MetaTitle.Text = m.Title;
         MetaChannel.Text = m.Channel;
         MetaDuration.Text = m.Duration.ToString(@"hh\:mm\:ss");
-        if (Uri.TryCreate(m.ThumbnailUrl, UriKind.Absolute, out var thumbUri))
-        {
-            try { MetaThumb.Source = new BitmapImage(thumbUri); } catch { /* image load best-effort */ }
-        }
+        // Route the thumbnail through InMemoryThumbnailLoader so we never write a copy
+        // into WinINet's cache. The fire-and-forget Task is OK here: if it succeeds we
+        // poke the Image source; if it fails we silently leave the placeholder.
+        _ = LoadMetaThumbAsync(m.ThumbnailUrl);
         MetaCard.Visibility = Visibility.Visible;
+    }
+
+    private async Task LoadMetaThumbAsync(string url)
+    {
+        var bmp = await InMemoryThumbnailLoader.LoadAsync(url).ConfigureAwait(true);
+        if (bmp is not null) MetaThumb.Source = bmp;
     }
 
     private void HideMeta()

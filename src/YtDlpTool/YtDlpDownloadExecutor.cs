@@ -64,7 +64,36 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
             var mapped = ErrorMapper.Map(result.ErrorStderr ?? "");
             return new DownloadExecutionResult(false, null, mapped, false);
         }
+
+        // Best-effort sidecar scrub: --embed-thumbnail normally removes the .webp/.jpg
+        // sidecar after embedding, but failure modes (codec mismatch, ffmpeg crashed
+        // mid-mux) leave orphans next to the final media file. Sweep the obvious
+        // candidates so the user's downloads folder stays clean.
+        CleanupOrphanSidecars(result.OutputFilePath);
+
         return new DownloadExecutionResult(true, result.OutputFilePath, null, false);
+    }
+
+    /// <summary>
+    /// Deletes likely-orphan sidecar files (thumbnail variants, yt-dlp temp files) that
+    /// share the same stem as the successfully-downloaded output. Each deletion is
+    /// wrapped in its own try/catch because none of them are load-bearing.
+    /// </summary>
+    private static void CleanupOrphanSidecars(string? outputFilePath)
+    {
+        if (string.IsNullOrEmpty(outputFilePath)) return;
+        var dir = Path.GetDirectoryName(outputFilePath);
+        var stem = Path.GetFileNameWithoutExtension(outputFilePath);
+        if (dir is null || stem is null) return;
+        foreach (var ext in new[] { ".webp", ".jpg", ".jpeg", ".png", ".part", ".ytdl", ".temp" })
+        {
+            try
+            {
+                var p = Path.Combine(dir, stem + ext);
+                if (File.Exists(p)) File.Delete(p);
+            }
+            catch { /* sidecar cleanup is best-effort */ }
+        }
     }
 
     private static string? ProbeProbableOutputPath(DownloadJob job, DownloadRequest request)

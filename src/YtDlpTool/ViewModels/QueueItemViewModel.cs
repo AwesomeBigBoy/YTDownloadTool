@@ -1,3 +1,4 @@
+using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using YtDlpTool.Domain.Models;
 
@@ -8,6 +9,11 @@ public partial class QueueItemViewModel : ObservableObject
     [ObservableProperty] private Guid _id;
     [ObservableProperty] private string _title = "";
     [ObservableProperty] private string _thumbnailUrl = "";
+
+    // Loaded by MainViewModel via InMemoryThumbnailLoader (Fix 4) — bound to the queue
+    // panel's Image.Source so WPF never has to fetch the URL itself via WinINet.
+    [ObservableProperty] private ImageSource? _thumbnailImage;
+
     [ObservableProperty] private JobStatus _status;
 
     [ObservableProperty]

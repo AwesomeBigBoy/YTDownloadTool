@@ -55,7 +55,7 @@
                                            Width="3" />
                                 <Image Grid.Column="1" Width="64" Height="36" Margin="8,0"
                                        Stretch="UniformToFill"
-                                       Source="{Binding ThumbnailUrl}" />
+                                       Source="{Binding ThumbnailImage}" />
                                 <StackPanel Grid.Column="2" VerticalAlignment="Center">
                                     <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"
                                                Foreground="{StaticResource Brush.TextPrimary}" />
