@@ -9,6 +9,18 @@ using YtDlpTool.Process;
 
 namespace YtDlpTool;
 
+/// <summary>
+/// v1.1.13 refactor: ExecuteAsync is now a single ordered pipeline regardless of
+/// clip / subs combination. Steps:
+///   1. Download MEDIA only (yt-dlp, no --write-subs).
+///   2. Download SUBS only (yt-dlp --skip-download), best-effort.
+///   3. ffmpeg-cut media (and each sub) when ClipRange is set.
+///   4. ffmpeg-mux any subs into the media. On mux failure, keep .vtt sidecars.
+/// This eliminates two bugs in v1.1.12: (a) clip+subs lost subtitles because the
+/// pre-cut yt-dlp call was forced to drop them, and (b) non-clip+subs failed
+/// because --write-subs alongside the media download triggered a heavier
+/// YouTube extractor path that needed a JS runtime we don't ship.
+/// </summary>
 public sealed class YtDlpDownloadExecutor : IDownloadExecutor
 {
     private readonly YtDlpRunner _ytDlp;
@@ -34,16 +46,15 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
 
         var sanitizedStem = FileNameSanitizer.Sanitize(job.Title);
 
-        // Conflict probe applies to the FINAL output (post-cut for clips, the single
-        // file otherwise). For the two-pass clip path the temp fullvideo file uses
-        // a different stem so it never collides with anything the user might see.
+        // Conflict probe applies to the FINAL output path. The intermediate
+        // ".media" / ".cut" stems are deliberately disjoint so they never
+        // collide with anything the user might see.
         var probableOutput = ProbeProbableOutputPath(job, sanitizedStem);
-        var conflictResolution = FilenameConflictResolution.Overwrite;
         var resolvedStem = sanitizedStem;
         var forceOverwriteFinal = false;
         if (probableOutput is not null && File.Exists(probableOutput))
         {
-            conflictResolution = await ShowConflictDialogOnUiThreadAsync(probableOutput).ConfigureAwait(false);
+            var conflictResolution = await ShowConflictDialogOnUiThreadAsync(probableOutput).ConfigureAwait(false);
             if (conflictResolution == FilenameConflictResolution.Cancel)
                 return new DownloadExecutionResult(false, null, null, WasCancelled: true);
             if (conflictResolution == FilenameConflictResolution.AutoRename)
@@ -52,61 +63,81 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
                 forceOverwriteFinal = true;
         }
 
-        if (job.ClipRange is not null)
-            return await ExecuteClipTwoPassAsync(job, resolvedStem, forceOverwriteFinal, progress, cancellationToken)
-                .ConfigureAwait(false);
+        var finalExt = ExtensionForMode(job) ?? ".mp4";
+        var finalPath = Path.Combine(job.SaveDirectory, resolvedStem + finalExt);
+        // forceOverwriteFinal is intentionally retained for parity with the legacy
+        // single-pass branch — we always pass -y to ffmpeg's mux/cut so the flag is
+        // not load-bearing, but it documents that the user agreed to overwrite.
+        _ = forceOverwriteFinal;
 
-        return await ExecuteSinglePassAsync(job, resolvedStem, forceOverwriteFinal, progress, cancellationToken)
-            .ConfigureAwait(false);
+        return await RunPipelineAsync(job, resolvedStem, finalPath, progress, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Non-clip download: hand the whole thing to yt-dlp, verify a media file
-    /// landed, scrub sidecars. This is the pre-v1.1.12 behaviour preserved
-    /// verbatim for the no-clip case.
+    /// The unified media+subs+clip pipeline. Each "phase" maps to a specific
+    /// progress range so the UI shows steady forward motion: media 0-65 (clip)
+    /// or 0-80 (no clip), subs +5, cut 75, mux 92, done 100.
     /// </summary>
-    private async Task<DownloadExecutionResult> ExecuteSinglePassAsync(
+    private async Task<DownloadExecutionResult> RunPipelineAsync(
         DownloadJob job,
-        string sanitizedStem,
-        bool forceOverwrite,
+        string resolvedStem,
+        string finalPath,
         IProgress<DownloadProgressSnapshot> progress,
         CancellationToken cancellationToken)
     {
-        var request = new DownloadRequest(
+        var hasClip = job.ClipRange is not null;
+        var hasSubs = job.SubtitleLanguageCodes.Count > 0
+                      && job.Mode != DownloadMode.AudioOnly;
+
+        // Intermediate stems. ".media" so the raw download never collides with
+        // the final file; ".cut" so the ffmpeg-trimmed media never collides
+        // with the raw download.
+        var mediaStem = resolvedStem + ".media";
+
+        // ----- Step 1: download media only -----
+        progress.Report(new DownloadProgressSnapshot(0, null, null));
+        var mediaProgressMax = hasClip ? 65.0 : 80.0;
+        var mediaProgress = new Progress<ProgressReport>(p =>
+            progress.Report(new DownloadProgressSnapshot(
+                Math.Min(mediaProgressMax, p.Percent * mediaProgressMax / 100.0),
+                p.BytesPerSecond, p.Eta)));
+
+        var mediaRequest = new DownloadRequest(
             Url: job.Url,
             Mode: job.Mode,
             ChosenFormat: job.ChosenFormat,
-            SubtitleLanguageCodes: job.SubtitleLanguageCodes,
+            SubtitleLanguageCodes: Array.Empty<string>(),
             ClipRange: null,
             SaveDirectory: job.SaveDirectory,
-            SanitizedFileStem: sanitizedStem,
-            ForceOverwrite: forceOverwrite);
+            SanitizedFileStem: mediaStem,
+            EmbedThumbnail: !hasClip,    // post-cut thumbnail re-embed would re-encode
+            ForceOverwrite: true);       // intermediate stem — safe to clobber
 
-        var processProgress = new Progress<ProgressReport>(p =>
-            progress.Report(new DownloadProgressSnapshot(p.Percent, p.BytesPerSecond, p.Eta)));
+        var mediaSw = Stopwatch.StartNew();
+        var mediaResult = await _ytDlp.DownloadAsync(mediaRequest, mediaProgress, cancellationToken).ConfigureAwait(false);
+        mediaSw.Stop();
 
-        var result = await _ytDlp.DownloadAsync(request, processProgress, cancellationToken).ConfigureAwait(false);
-
-        if (result.WasCancelled)
+        if (mediaResult.WasCancelled)
         {
+            TryDeleteByStem(job.SaveDirectory, mediaStem);
             MappedError? diag = null;
-            if (!string.IsNullOrEmpty(result.ErrorStderr))
+            if (!string.IsNullOrEmpty(mediaResult.ErrorStderr))
                 diag = new MappedError(ErrorCategory.UnknownError, "", "E-CANCEL-DIAG",
-                    false, RawDetails: result.ErrorStderr);
+                    false, RawDetails: mediaResult.ErrorStderr);
             return new DownloadExecutionResult(false, null, diag, true);
         }
-        if (!result.IsSuccess)
+        if (!mediaResult.IsSuccess)
         {
-            var mapped = ErrorMapper.Map(result.ErrorStderr ?? "");
-            return new DownloadExecutionResult(false, null, mapped, false);
+            TryDeleteByStem(job.SaveDirectory, mediaStem);
+            return new DownloadExecutionResult(false, null,
+                ErrorMapper.Map(mediaResult.ErrorStderr ?? ""), false);
         }
 
-        // v1.1.6: confirm an actual media file landed in the save directory; yt-dlp
-        // can return exit 0 after producing only sidecars under some failure modes.
-        var probe = MediaOutputProbe.VerifyMediaOutputExists(job.SaveDirectory, request.SanitizedFileStem);
-        if (!probe.found)
+        // Verify a real media file actually landed before continuing.
+        var mediaProbe = MediaOutputProbe.VerifyMediaOutputExists(job.SaveDirectory, mediaStem);
+        if (!mediaProbe.found)
         {
-            foreach (var leftover in probe.sidecarPaths)
+            foreach (var leftover in mediaProbe.sidecarPaths)
             {
                 try { File.Delete(leftover); } catch { /* best effort */ }
             }
@@ -117,161 +148,240 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
                 WasCancelled: false);
         }
 
-        CleanupOrphanSidecars(result.OutputFilePath);
-        return new DownloadExecutionResult(true, result.OutputFilePath, null, false);
-    }
-
-    /// <summary>
-    /// Clip download (v1.1.12): two passes — yt-dlp downloads the FULL video to a
-    /// temp file using its proven full-download codepath, then ffmpeg stream-copies
-    /// the requested time range into the user-visible output. Eliminates yt-dlp's
-    /// --download-sections entirely (which needs a JavaScript runtime to resolve
-    /// the section URL on current YouTube videos and hangs silently without one).
-    /// </summary>
-    private async Task<DownloadExecutionResult> ExecuteClipTwoPassAsync(
-        DownloadJob job,
-        string finalStem,
-        bool forceOverwriteFinal,
-        IProgress<DownloadProgressSnapshot> progress,
-        CancellationToken cancellationToken)
-    {
-        var clipRange = job.ClipRange!;
-        var tempStem = finalStem + ".fullvideo";
-        var finalExt = ExtensionForMode(job) ?? ".mp4";
-        var finalPath = Path.Combine(job.SaveDirectory, finalStem + finalExt);
-
-        var pass1Request = new DownloadRequest(
-            Url: job.Url,
-            Mode: job.Mode,
-            ChosenFormat: job.ChosenFormat,
-            SubtitleLanguageCodes: Array.Empty<string>(),    // would be wrong-length on a cut
-            ClipRange: null,                                 // explicitly not yt-dlp's job anymore
-            SaveDirectory: job.SaveDirectory,
-            SanitizedFileStem: tempStem,
-            EmbedThumbnail: false,                           // thumbnail re-embed after cut would re-encode
-            ForceOverwrite: true);                           // temp stem so safe to clobber
-
-        // Map pass 1 (yt-dlp full download) to 0-85% of overall progress.
-        var pass1Progress = new Progress<ProgressReport>(p =>
-            progress.Report(new DownloadProgressSnapshot(
-                Math.Min(85.0, p.Percent * 0.85), p.BytesPerSecond, p.Eta)));
-
-        var pass1Sw = Stopwatch.StartNew();
-        var pass1 = await _ytDlp.DownloadAsync(pass1Request, pass1Progress, cancellationToken).ConfigureAwait(false);
-        pass1Sw.Stop();
-
-        if (pass1.WasCancelled)
+        var mediaPath = mediaResult.OutputFilePath;
+        if (string.IsNullOrEmpty(mediaPath) || !File.Exists(mediaPath))
         {
-            TryDeleteByStem(job.SaveDirectory, tempStem);
-            MappedError? diag = null;
-            if (!string.IsNullOrEmpty(pass1.ErrorStderr))
-                diag = new MappedError(ErrorCategory.UnknownError, "", "E-CANCEL-DIAG",
-                    false, RawDetails: pass1.ErrorStderr);
-            return new DownloadExecutionResult(false, null, diag, true);
-        }
-        if (!pass1.IsSuccess)
-        {
-            TryDeleteByStem(job.SaveDirectory, tempStem);
-            return new DownloadExecutionResult(false, null,
-                ErrorMapper.Map(pass1.ErrorStderr ?? ""), false);
-        }
-
-        // Verify the full video file actually exists on disk before ffmpeg tries to read it.
-        var fullProbe = MediaOutputProbe.VerifyMediaOutputExists(job.SaveDirectory, tempStem);
-        if (!fullProbe.found)
-        {
-            foreach (var leftover in fullProbe.sidecarPaths)
-            {
-                try { File.Delete(leftover); } catch { }
-            }
-            return new DownloadExecutionResult(false, null,
-                new MappedError(ErrorCategory.UnknownError,
-                    "下載未產生影音檔案，僅有附件（字幕/縮圖）。請嘗試其他格式或畫質。",
-                    "E-NOMEDIA1", false, ""),
-                WasCancelled: false);
-        }
-
-        var fullPath = pass1.OutputFilePath;
-        if (string.IsNullOrEmpty(fullPath) || !File.Exists(fullPath))
-        {
-            // Fall back to discovering the actual file on disk — yt-dlp's progress
-            // parser is regex-based and can miss the Destination line on certain
-            // edge cases (e.g. when merger renames the output).
-            fullPath = FindFirstMediaFile(job.SaveDirectory, tempStem);
-            if (fullPath is null)
+            // yt-dlp's progress parser may miss the Destination: line on certain
+            // edge cases (merger rename, etc.). Fall back to file-system probe.
+            mediaPath = FindFirstMediaFile(job.SaveDirectory, mediaStem);
+            if (mediaPath is null)
                 return new DownloadExecutionResult(false, null,
                     new MappedError(ErrorCategory.UnknownError,
-                        "下載成功但找不到輸出檔案，無法進行剪輯。",
+                        "下載成功但找不到輸出檔案，無法進行後續處理。",
                         "E-NOFILE1", false, ""),
                     WasCancelled: false);
         }
 
-        _logger?.Info("clip.fullvideo.completed", new Dictionary<string, string>
+        _logger?.Info("media.download.completed", new Dictionary<string, string>
         {
-            ["elapsed_ms"] = pass1Sw.ElapsedMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            ["elapsed_ms"] = mediaSw.ElapsedMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture)
         });
 
-        // Refuse to overwrite the final file unless the conflict dialog said so.
-        // The conflict probe checks the FINAL path's existence at job start, so
-        // by the time we get here either no conflict existed or the user agreed
-        // to overwrite / auto-rename (which already updated finalStem). The
-        // forceOverwriteFinal flag is forwarded to ffmpeg via -y which we always
-        // pass; the variable is kept for parity with the single-pass branch and
-        // future audit logging.
-        _ = forceOverwriteFinal;
-
-        progress.Report(new DownloadProgressSnapshot(92.0, null, null));
-
-        var cutSw = Stopwatch.StartNew();
-        var cut = await _ffmpeg.CutAsync(
-            inputPath: fullPath,
-            outputPath: finalPath,
-            range: clipRange,
-            mode: job.Mode,
-            progress: null,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-        cutSw.Stop();
-
-        // Always delete the temp full video; it's not user-visible and would
-        // double-occupy disk if left behind. Sidecars (.jpg/.webp/.ytdl) that
-        // yt-dlp may have produced are scrubbed via CleanupOrphanSidecars.
-        TryDelete(fullPath);
-        CleanupOrphanSidecars(fullPath);
-
-        if (cut.WasCancelled)
+        // ----- Step 2: download subs only (best-effort) -----
+        IReadOnlyList<string> subFiles = Array.Empty<string>();
+        if (hasSubs)
         {
-            TryDelete(finalPath);
-            return new DownloadExecutionResult(false, null,
-                new MappedError(ErrorCategory.UnknownError,
-                    "剪輯已取消", "E-CUT-CANCEL", false, cut.ErrorMessage),
-                WasCancelled: true);
-        }
-        if (!cut.IsSuccess)
-        {
-            TryDelete(finalPath);
-            var raw = (cut.ErrorMessage ?? "").Trim();
-            if (raw.Length > 500) raw = raw.Substring(0, 500);
-            return new DownloadExecutionResult(false, null,
-                new MappedError(ErrorCategory.UnknownError,
-                    "剪輯失敗：ffmpeg 無法處理下載的影片，請改試其他格式或畫質。",
-                    "E-CUT-FAIL", false, raw),
-                WasCancelled: false);
+            progress.Report(new DownloadProgressSnapshot(mediaProgressMax + 5, null, null));
+            var subRes = await _ytDlp.DownloadSubtitlesOnlyAsync(
+                job.Url, job.SubtitleLanguageCodes, job.SaveDirectory, mediaStem, cancellationToken)
+                .ConfigureAwait(false);
+            if (subRes.IsSuccess && subRes.SubtitleFilePaths.Count > 0)
+            {
+                subFiles = subRes.SubtitleFilePaths;
+                _logger?.Info("subs.download.completed", new Dictionary<string, string>
+                {
+                    ["count"] = subFiles.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                });
+            }
+            else
+            {
+                _logger?.Warn("subs.download.failed", new Dictionary<string, string>
+                {
+                    ["reason"] = TrimDiag(subRes.ErrorMessage) ?? "no files"
+                });
+                // continue without subs — best effort
+            }
         }
 
-        _logger?.Info("clip.cut.completed", new Dictionary<string, string>
+        // ----- Step 3: ffmpeg cut media + each sub (clip only) -----
+        var currentMediaPath = mediaPath;
+        var currentSubFiles = subFiles;
+        if (hasClip)
         {
-            ["elapsed_ms"] = cutSw.ElapsedMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture)
-        });
+            var clipRange = job.ClipRange!;
+            var cutStem = resolvedStem + ".cut";
+            var cutMediaPath = Path.Combine(job.SaveDirectory, cutStem + Path.GetExtension(currentMediaPath));
 
-        // Final sanity check on the cut output.
-        if (!File.Exists(finalPath) || new FileInfo(finalPath).Length == 0)
+            progress.Report(new DownloadProgressSnapshot(75, null, null));
+            var cutSw = Stopwatch.StartNew();
+            var cut = await _ffmpeg.CutAsync(
+                inputPath: currentMediaPath,
+                outputPath: cutMediaPath,
+                range: clipRange,
+                mode: job.Mode,
+                progress: null,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            cutSw.Stop();
+
+            if (cut.WasCancelled)
+            {
+                TryDelete(currentMediaPath);
+                TryDelete(cutMediaPath);
+                foreach (var sf in currentSubFiles) TryDelete(sf);
+                return new DownloadExecutionResult(false, null,
+                    new MappedError(ErrorCategory.UnknownError,
+                        "剪輯已取消", "E-CUT-CANCEL", false, cut.ErrorMessage),
+                    WasCancelled: true);
+            }
+            if (!cut.IsSuccess)
+            {
+                TryDelete(currentMediaPath);
+                TryDelete(cutMediaPath);
+                foreach (var sf in currentSubFiles) TryDelete(sf);
+                var raw = (cut.ErrorMessage ?? "").Trim();
+                if (raw.Length > 500) raw = raw.Substring(0, 500);
+                return new DownloadExecutionResult(false, null,
+                    new MappedError(ErrorCategory.UnknownError,
+                        "剪輯失敗：ffmpeg 無法處理下載的影片，請改試其他格式或畫質。",
+                        "E-CUT-FAIL", false, raw),
+                    WasCancelled: false);
+            }
+
+            // Verify the cut output is non-empty before tossing the raw media.
+            if (!File.Exists(cutMediaPath) || new FileInfo(cutMediaPath).Length == 0)
+            {
+                TryDelete(currentMediaPath);
+                TryDelete(cutMediaPath);
+                foreach (var sf in currentSubFiles) TryDelete(sf);
+                return new DownloadExecutionResult(false, null,
+                    new MappedError(ErrorCategory.UnknownError,
+                        "剪輯完成但輸出檔案為空。請嘗試其他格式或畫質。",
+                        "E-CUT-EMPTY", false, ""),
+                    WasCancelled: false);
+            }
+
+            TryDelete(currentMediaPath);
+            CleanupOrphanSidecars(currentMediaPath);
+            currentMediaPath = cutMediaPath;
+
+            _logger?.Info("clip.cut.completed", new Dictionary<string, string>
+            {
+                ["elapsed_ms"] = cutSw.ElapsedMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            });
+
+            // Cut each subtitle to the same range. Failures here drop that
+            // individual subtitle but never fail the whole pipeline — the user
+            // still gets the cut media.
+            if (currentSubFiles.Count > 0)
+            {
+                var cutSubs = new List<string>();
+                foreach (var sf in currentSubFiles)
+                {
+                    var dir = Path.GetDirectoryName(sf) ?? job.SaveDirectory;
+                    var lang = FfmpegRunner.ExtractLangFromFilename(Path.GetFileName(sf));
+                    var subExt = Path.GetExtension(sf);
+                    var cutSubName = string.IsNullOrEmpty(lang)
+                        ? cutStem + subExt
+                        : cutStem + "." + lang + subExt;
+                    var cutSubPath = Path.Combine(dir, cutSubName);
+
+                    var subCut = await _ffmpeg.CutSubtitleAsync(sf, cutSubPath, clipRange, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (subCut.IsSuccess && File.Exists(cutSubPath))
+                    {
+                        cutSubs.Add(cutSubPath);
+                    }
+                    else
+                    {
+                        _logger?.Warn("subs.cut.failed", new Dictionary<string, string>
+                        {
+                            ["file"] = Path.GetFileName(sf),
+                            ["reason"] = TrimDiag(subCut.ErrorMessage) ?? ""
+                        });
+                    }
+                    TryDelete(sf);
+                }
+                currentSubFiles = cutSubs;
+            }
+        }
+
+        // ----- Step 4: mux subs into media (if any) -----
+        if (currentSubFiles.Count > 0)
         {
+            progress.Report(new DownloadProgressSnapshot(92, null, null));
+            // Scrub intermediate sidecars BEFORE the mux replaces things — otherwise
+            // a ".media.jpg" left over from --embed-thumbnail's sidecar write would
+            // outlive the rename and clutter the user's folder.
+            CleanupOrphanSidecars(currentMediaPath);
+            // ffmpeg refuses to overwrite without -y; BuildMuxArgs already passes -y.
+            // We still pre-delete the final path so a stale file with the same name
+            // doesn't confuse downstream consumers if mux silently produces a zero-byte file.
             TryDelete(finalPath);
-            return new DownloadExecutionResult(false, null,
-                new MappedError(ErrorCategory.UnknownError,
-                    "剪輯完成但輸出檔案為空。請嘗試其他格式或畫質。",
-                    "E-CUT-EMPTY", false, ""),
-                WasCancelled: false);
+
+            var muxResult = await _ffmpeg.MuxSubtitlesAsync(
+                currentMediaPath, currentSubFiles, finalPath, cancellationToken).ConfigureAwait(false);
+
+            if (muxResult.IsSuccess && File.Exists(finalPath) && new FileInfo(finalPath).Length > 0)
+            {
+                TryDelete(currentMediaPath);
+                foreach (var sf in currentSubFiles) TryDelete(sf);
+                _logger?.Info("subs.mux.completed", new Dictionary<string, string>
+                {
+                    ["count"] = currentSubFiles.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                });
+            }
+            else
+            {
+                // Mux failed — keep cut media as final + leave sidecars next to it
+                // so the user still has the bits, just in two files.
+                _logger?.Warn("subs.mux.failed", new Dictionary<string, string>
+                {
+                    ["reason"] = TrimDiag(muxResult.ErrorMessage) ?? ""
+                });
+                TryDelete(finalPath); // remove any partial output
+                try
+                {
+                    File.Move(currentMediaPath, finalPath);
+                }
+                catch
+                {
+                    // If even the rename fails, fall back to reporting the
+                    // intermediate path so the user knows where the file is.
+                    finalPath = currentMediaPath;
+                }
+
+                // Rename sidecars so they sit alongside the renamed media: the
+                // intermediate ".cut.<lang>.vtt" / ".media.<lang>.vtt" prefix
+                // becomes "<final-stem>.<lang>.vtt". On failure, leave the
+                // sidecar at its current name.
+                var finalStem = Path.GetFileNameWithoutExtension(finalPath);
+                var finalDir = Path.GetDirectoryName(finalPath) ?? job.SaveDirectory;
+                foreach (var sf in currentSubFiles)
+                {
+                    if (!File.Exists(sf)) continue;
+                    var lang = FfmpegRunner.ExtractLangFromFilename(Path.GetFileName(sf));
+                    var subExt = Path.GetExtension(sf);
+                    var renamed = string.IsNullOrEmpty(lang)
+                        ? Path.Combine(finalDir, finalStem + subExt)
+                        : Path.Combine(finalDir, finalStem + "." + lang + subExt);
+                    try
+                    {
+                        if (!string.Equals(renamed, sf, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (File.Exists(renamed)) File.Delete(renamed);
+                            File.Move(sf, renamed);
+                        }
+                    }
+                    catch { /* leave sidecar where it lies */ }
+                }
+            }
+        }
+        else
+        {
+            // No subs — just rename the (possibly cut) media to finalPath.
+            // Scrub intermediate sidecars (e.g. ".media.jpg" from --embed-thumbnail)
+            // BEFORE the move so they don't get left orphaned under the old stem.
+            CleanupOrphanSidecars(currentMediaPath);
+            try
+            {
+                if (File.Exists(finalPath)) File.Delete(finalPath);
+                File.Move(currentMediaPath, finalPath);
+            }
+            catch
+            {
+                // Fall back: report the intermediate name so the user can still find the file.
+                finalPath = currentMediaPath;
+            }
         }
 
         progress.Report(new DownloadProgressSnapshot(100.0, null, null));
@@ -320,9 +430,22 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
     }
 
     /// <summary>
+    /// Trims a diagnostic blob to a length sensible for log files. Returns null
+    /// when the input is null/empty so callers can fall back to a default reason.
+    /// </summary>
+    private static string? TrimDiag(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var trimmed = raw.Trim();
+        return trimmed.Length > 500 ? trimmed.Substring(0, 500) : trimmed;
+    }
+
+    /// <summary>
     /// Deletes likely-orphan sidecar files (thumbnail variants, yt-dlp temp files) that
     /// share the same stem as the successfully-downloaded output. Each deletion is
-    /// wrapped in its own try/catch because none of them are load-bearing.
+    /// wrapped in its own try/catch because none of them are load-bearing. NOTE: this
+    /// intentionally does NOT touch .vtt/.srt sidecars — those may have been left
+    /// behind on purpose when ffmpeg-mux failed.
     /// </summary>
     private static void CleanupOrphanSidecars(string? outputFilePath)
     {
