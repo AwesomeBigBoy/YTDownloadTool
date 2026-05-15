@@ -170,6 +170,9 @@ public sealed class UpdateApplier
                 }
                 catch { }
             }
+            // Rollback path: same scrub as the success path so a failed apply doesn't
+            // leave .new files dangling in staging that confuse the next attempt.
+            ScrubStaging();
             progress?.Report(new UpdateApplyProgress(UpdateApplyStage.RolledBack, "", 0, 0, entries.Count));
             return new UpdateApplyResult(false, $"套用失敗已還原：{ex.Message}");
         }
@@ -179,8 +182,35 @@ public sealed class UpdateApplier
             if (!string.IsNullOrEmpty(backup) && File.Exists(backup))
                 try { File.Delete(backup); } catch { }
 
+        // Step 6: scrub the staging directory. Even after a clean apply, the move/rename
+        // sequence above can leave behind .partial/.tmp/.new files when yt-dlp resumes a
+        // half-finished download in a future session, or when an antivirus held a file
+        // briefly open. We don't want any breadcrumbs left in the user's data folder, so
+        // wipe the whole staging dir and recreate it empty.
+        ScrubStaging();
+        _logger?.Info("update.cleanup", new Dictionary<string, string>
+        {
+            ["staging_emptied"] = "true"
+        });
+
         progress?.Report(new UpdateApplyProgress(UpdateApplyStage.Done, "", 100, entries.Count, entries.Count));
         return new UpdateApplyResult(true, null);
+    }
+
+    /// <summary>
+    /// Best-effort recursive delete of <see cref="AppPaths.UpdateStaging"/>. We swallow
+    /// every exception because cleanup is never load-bearing: if a stale file is held
+    /// open by another process the next apply will overwrite the .new with the same path.
+    /// </summary>
+    private void ScrubStaging()
+    {
+        try
+        {
+            if (Directory.Exists(_paths.UpdateStaging))
+                Directory.Delete(_paths.UpdateStaging, recursive: true);
+        }
+        catch { }
+        try { Directory.CreateDirectory(_paths.UpdateStaging); } catch { }
     }
 
     private static void Cleanup(IEnumerable<(ManifestFileEntry, string)> staged)
