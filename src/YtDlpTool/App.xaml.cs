@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using YtDlpTool.Interop;
 using YtDlpTool.Services;
 
 namespace YtDlpTool;
@@ -22,6 +23,16 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // v1.1.26: allocate a hidden console for the parent process BEFORE
+        // anything else can spawn a child. Child processes (yt-dlp, ffmpeg)
+        // launched without CREATE_NO_WINDOW inherit this console, so they
+        // see real TTY stdio (their isatty probe returns true and
+        // GetConsoleWindow returns a non-zero hwnd) without a window
+        // flashing up for the user. v1.1.23-v1.1.25 had a visible 1-2s
+        // console flash per yt-dlp spawn; this removes it without sacrificing
+        // the TTY mode that satisfies endpoint web filtering in managedenvs.
+        HiddenConsole.Allocate();
+
         // Set up the early diagnostic path BEFORE anything else so a crash during
         // AppHost / ThemeService / WPF visual tree construction still gets a written
         // record (the regular AppLogger isn't available yet at this point).
@@ -135,6 +146,7 @@ public partial class App : Application
         _appShutdown.Cancel();
         Host?.Dispose();
         _appShutdown.Dispose();
+        HiddenConsole.Free();
         base.OnExit(e);
     }
 
