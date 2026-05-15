@@ -54,9 +54,17 @@ public static class ProcessSandbox
         // under concurrent OutputDataReceived callbacks without locking.
         var recentStdout = new ConcurrentQueue<string>();
 
+        // v1.1.19: track time-to-first-output so the caller can tell "stuck before
+        // any output" from "stuck after Python started talking". Stamped from the
+        // first non-null stdout OR stderr line, whichever lands first. Sentinel
+        // -1 means "no output received yet" — converted to null at return time.
+        long firstOutputMs = -1;
+        var startStopwatch = System.Diagnostics.Stopwatch.StartNew();
+
         process.OutputDataReceived += (_, e) =>
         {
             if (e.Data is null) return;
+            Interlocked.CompareExchange(ref firstOutputMs, startStopwatch.ElapsedMilliseconds, -1);
             var bytes = Encoding.UTF8.GetByteCount(e.Data);
             if (Interlocked.Add(ref stdoutBytes, bytes) > args.StdoutByteLimit)
             {
@@ -73,6 +81,7 @@ public static class ProcessSandbox
         process.ErrorDataReceived += (_, e) =>
         {
             if (e.Data is null) return;
+            Interlocked.CompareExchange(ref firstOutputMs, startStopwatch.ElapsedMilliseconds, -1);
             var bytes = Encoding.UTF8.GetByteCount(e.Data);
             if (Interlocked.Add(ref stderrBytes, bytes) > args.StderrByteLimit)
             {
@@ -141,7 +150,18 @@ public static class ProcessSandbox
             Cancelled: cancelled,
             StdoutLimitExceeded: stdoutLimitExceeded,
             StderrLimitExceeded: stderrLimitExceeded,
-            RecentStdout: string.Join('\n', recentStdout));
+            RecentStdout: string.Join('\n', recentStdout),
+            TimeToFirstOutputMs: firstOutputMs == -1 ? null : firstOutputMs,
+            StdoutBytes: Interlocked.Read(ref stdoutBytes),
+            StderrBytes: Interlocked.Read(ref stderrBytes),
+            Pid: SafePid(process));
+    }
+
+    private static int SafePid(System.Diagnostics.Process p)
+    {
+        // Process.Id throws if the process has exited and the OS has reaped it.
+        try { return p.Id; }
+        catch { return 0; }
     }
 
     private static async Task WaitForCancellationAsync(System.Diagnostics.Process process, CancellationToken ct)

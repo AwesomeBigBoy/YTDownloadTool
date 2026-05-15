@@ -1,4 +1,5 @@
 using System.Text.Json;
+using YtDlpTool.Domain.Logging;
 using YtDlpTool.Domain.Models;
 
 namespace YtDlpTool.Process;
@@ -8,12 +9,48 @@ public sealed class YtDlpRunner
     private readonly string _executable;
     private readonly bool _allowUntrustedCerts;
     private readonly string? _caBundlePath;
+    private readonly AppLogger? _logger;
 
-    public YtDlpRunner(string executable, bool allowUntrustedCerts = false, string? caBundlePath = null)
+    public YtDlpRunner(string executable, bool allowUntrustedCerts = false, string? caBundlePath = null, AppLogger? logger = null)
     {
         _executable = executable;
         _allowUntrustedCerts = allowUntrustedCerts;
         _caBundlePath = caBundlePath;
+        _logger = logger;
+    }
+
+    // v1.1.19: structured invocation log. Distinguishes "Python startup hung"
+    // (no first-output ms, no bytes) from "network call hung" (some bytes,
+    // first-output ms < 1s) from "fragment retry loop" (lots of bytes,
+    // first-output ms < 1s, timed_out=true). Hashes URLs the way AppLogger
+    // does elsewhere — no plain video URLs ever land in the log file.
+    private void LogInvokeBegin(string operation, IReadOnlyList<string> arguments, string? urlForHashing, IReadOnlyDictionary<string, string>? extraEnv)
+    {
+        if (_logger is null) return;
+        _logger.Info("ytdlp.invoke.begin", new Dictionary<string, string>
+        {
+            ["op"]            = operation,
+            ["arg_count"]     = arguments.Count.ToString(),
+            ["url_hash"]      = urlForHashing is null ? "" : AppLogger.HashSuffix(urlForHashing),
+            ["extra_env"]     = extraEnv is null ? "" : string.Join(',', extraEnv.Keys),
+            ["allow_no_cert"] = _allowUntrustedCerts ? "true" : "false",
+        });
+    }
+
+    private void LogInvokeEnd(string operation, ProcessExitInfo exit)
+    {
+        if (_logger is null) return;
+        _logger.Info("ytdlp.invoke.end", new Dictionary<string, string>
+        {
+            ["op"]              = operation,
+            ["exit_code"]       = exit.ExitCode.ToString(),
+            ["timed_out"]       = exit.TimedOut ? "true" : "false",
+            ["cancelled"]       = exit.Cancelled ? "true" : "false",
+            ["pid"]             = exit.Pid.ToString(),
+            ["first_output_ms"] = exit.TimeToFirstOutputMs is { } ms ? ms.ToString() : "(none)",
+            ["stdout_bytes"]    = exit.StdoutBytes.ToString(),
+            ["stderr_bytes"]    = exit.StderrBytes.ToString(),
+        });
     }
 
     // v1.1.17: explicit env-var injection for yt-dlp child processes. We
@@ -47,16 +84,19 @@ public sealed class YtDlpRunner
         fetchArgs.Add("--");
         fetchArgs.Add(url);
 
+        var extraEnv = BuildExtraEnv();
         var args = new ProcessStartArguments(
             ExecutablePath: _executable,
             Arguments: fetchArgs,
             Timeout: TimeSpan.FromSeconds(30),
-            ExtraEnv: BuildExtraEnv());
+            ExtraEnv: extraEnv);
 
+        LogInvokeBegin("metadata", fetchArgs, url, extraEnv);
         var stdoutLines = new List<string>();
         var exit = await ProcessSandbox.RunAsync(args,
             onStdout: line => stdoutLines.Add(line.Text),
             cancellationToken: cancellationToken);
+        LogInvokeEnd("metadata", exit);
 
         if (exit.ExitCode != 0 || exit.TimedOut || exit.Cancelled)
         {
@@ -190,15 +230,18 @@ public sealed class YtDlpRunner
         argList.Add("--");
         argList.Add(request.Url);
 
+        var extraEnv = BuildExtraEnv();
         var args = new ProcessStartArguments(
             ExecutablePath: _executable,
             Arguments: argList,
-            ExtraEnv: BuildExtraEnv());
+            ExtraEnv: extraEnv);
 
+        LogInvokeBegin("download", argList, request.Url, extraEnv);
         string? finalPath = null;
         var exit = await ProcessSandbox.RunAsync(args,
             onStdout: line => ParseProgress(line.Text, progress, ref finalPath),
             cancellationToken: cancellationToken);
+        LogInvokeEnd("download", exit);
 
         if (exit.Cancelled) return new DownloadResult(false, null, BuildDiagnostics(exit), true);
         if (exit.ExitCode != 0) return new DownloadResult(false, null, BuildDiagnostics(exit), false);
@@ -290,13 +333,16 @@ public sealed class YtDlpRunner
         argList.Add("--");
         argList.Add(url);
 
+        var extraEnv = BuildExtraEnv();
         var args = new ProcessStartArguments(
             ExecutablePath: _executable,
             Arguments: argList,
             Timeout: TimeSpan.FromMinutes(2),
-            ExtraEnv: BuildExtraEnv());
+            ExtraEnv: extraEnv);
 
+        LogInvokeBegin("subtitles", argList, url, extraEnv);
         var exit = await ProcessSandbox.RunAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
+        LogInvokeEnd("subtitles", exit);
         if (exit.ExitCode != 0)
             return new SubtitleDownloadResult(false, Array.Empty<string>(), BuildDiagnostics(exit));
 

@@ -87,7 +87,8 @@ public sealed class AppHost : IDisposable
         YtDlp  = new YtDlpRunner(
             ytDlpExe,
             allowUntrustedCerts: Config.AllowUntrustedCertificates,
-            caBundlePath: injectableCaBundle);
+            caBundlePath: injectableCaBundle,
+            logger: Logger);
         Ffmpeg = new FfmpegRunner(ffmpegExe);
 
         Logger.Info("ytdlp.ca-bundle.inject", new Dictionary<string, string>
