@@ -274,10 +274,15 @@ public sealed class DownloadQueue : IDisposable
             {
                 var err = result.Error ?? new MappedError(ErrorCategory.UnknownError, "下載失敗", "E-UNKNOWN", false);
                 job.MarkFailed(err.UserMessage, err.ErrorCode);
+                // Log the real failure detail (truncated raw stderr) alongside the code so
+                // bug reports actually contain the yt-dlp diagnosis instead of just
+                // the bucket name. This is a local-only log; we don't strip URLs.
                 _logger?.Warn("download.failed", new Dictionary<string, string>
                 {
                     ["job_hash"] = jobHash,
-                    ["error_code"] = err.ErrorCode
+                    ["error_code"] = err.ErrorCode,
+                    ["category"] = err.Category.ToString(),
+                    ["details"] = err.RawDetails ?? ""
                 });
                 _onEvent(new JobFailedEvent(job, err));
             }
