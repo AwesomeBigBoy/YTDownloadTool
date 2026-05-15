@@ -73,58 +73,84 @@ public sealed class YtDlpRunner
         string url,
         CancellationToken cancellationToken = default)
     {
-        var fetchArgs = new List<string>
-        {
-            "--dump-single-json",
-            "--no-playlist",
-            "--no-warnings",
-        };
-        if (_allowUntrustedCerts) fetchArgs.Add("--no-check-certificates");
-        AddSystemProxyArgs(fetchArgs);
-        fetchArgs.Add("--");
-        fetchArgs.Add(url);
+        // v1.1.23: TTY mode — see ProcessStartArguments.NoIoRedirection. yt-dlp
+        // writes the metadata JSON to a file instead of stdout, because endpoint security software
+        // endpoint security software on managed hosts drops the application-layer payload for
+        // processes with redirected stdout (heuristic: "headless = malware-like").
+        // Direct CMD invocation works because cmd gives yt-dlp a real TTY.
+        var infoDir = Path.Combine(Path.GetTempPath(), "ytdlptool-meta-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(infoDir);
+        var outputTemplate = Path.Combine(infoDir, "%(id)s");
 
-        var extraEnv = BuildExtraEnv();
-        var args = new ProcessStartArguments(
-            ExecutablePath: _executable,
-            Arguments: fetchArgs,
-            Timeout: TimeSpan.FromSeconds(30),
-            ExtraEnv: extraEnv,
-            WrapInCmdShell: true);
-
-        LogInvokeBegin("metadata", fetchArgs, url, extraEnv);
-        var stdoutLines = new List<string>();
-        var exit = await ProcessSandbox.RunAsync(args,
-            onStdout: line => stdoutLines.Add(line.Text),
-            cancellationToken: cancellationToken);
-        LogInvokeEnd("metadata", exit);
-
-        if (exit.ExitCode != 0 || exit.TimedOut || exit.Cancelled)
-        {
-            // v1.1.14: surface stdout-tail in addition to stderr (parity with DownloadAsync),
-            // and prefix an explicit [timeout]/[cancelled] marker so ErrorMapper can route
-            // to the actionable AD-env friendly message instead of "下載失敗（無錯誤訊息）".
-            var diag = BuildDiagnostics(exit);
-            if (exit.TimedOut) diag = "[timeout after 30s]\n" + diag;
-            else if (exit.Cancelled) diag = "[cancelled]\n" + diag;
-            return new MetadataFetchResult(false, null, diag);
-        }
-
-        var raw = string.Join('\n', stdoutLines);
-        YtDlpMetadataDto? dto;
         try
         {
-            dto = JsonSerializer.Deserialize(raw, YtDlpJsonContext.Default.YtDlpMetadataDto);
+            var fetchArgs = new List<string>
+            {
+                "--skip-download",
+                "--write-info-json",
+                "--no-playlist",
+                "--no-warnings",
+                "--output", outputTemplate,
+            };
+            if (_allowUntrustedCerts) fetchArgs.Add("--no-check-certificates");
+            AddSystemProxyArgs(fetchArgs);
+            fetchArgs.Add("--");
+            fetchArgs.Add(url);
+
+            var extraEnv = BuildExtraEnv();
+            var args = new ProcessStartArguments(
+                ExecutablePath: _executable,
+                Arguments: fetchArgs,
+                // Bumped from 30s — without stdout we can't see early-output ms,
+                // and the visible console adds a small startup cost.
+                Timeout: TimeSpan.FromSeconds(60),
+                ExtraEnv: extraEnv,
+                NoIoRedirection: true);
+
+            LogInvokeBegin("metadata", fetchArgs, url, extraEnv);
+            var exit = await ProcessSandbox.RunAsync(args, cancellationToken: cancellationToken);
+            LogInvokeEnd("metadata", exit);
+
+            // In TTY mode we can't read stdout/stderr — the only signal of
+            // success is the .info.json file appearing on disk.
+            var jsonFiles = Directory.GetFiles(infoDir, "*.info.json");
+            if (jsonFiles.Length == 0)
+            {
+                var marker = exit.TimedOut ? "[timeout after 60s]" :
+                             exit.Cancelled ? "[cancelled]" :
+                             $"[exit {exit.ExitCode}]";
+                return new MetadataFetchResult(false, null, marker + " no .info.json produced — yt-dlp likely blocked or failed silently");
+            }
+
+            string raw;
+            try
+            {
+                raw = await File.ReadAllTextAsync(jsonFiles[0], cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return new MetadataFetchResult(false, null, "failed to read .info.json: " + ex.Message);
+            }
+
+            YtDlpMetadataDto? dto;
+            try
+            {
+                dto = JsonSerializer.Deserialize(raw, YtDlpJsonContext.Default.YtDlpMetadataDto);
+            }
+            catch (JsonException)
+            {
+                return new MetadataFetchResult(false, null, "JSON parse failed");
+            }
+
+            if (dto is null || string.IsNullOrEmpty(dto.Id) || string.IsNullOrEmpty(dto.Title))
+                return new MetadataFetchResult(false, null, "missing fields");
+
+            return new MetadataFetchResult(true, MapToMetadata(dto), null);
         }
-        catch (JsonException)
+        finally
         {
-            return new MetadataFetchResult(false, null, "JSON parse failed");
+            try { Directory.Delete(infoDir, recursive: true); } catch { /* best-effort cleanup */ }
         }
-
-        if (dto is null || string.IsNullOrEmpty(dto.Id) || string.IsNullOrEmpty(dto.Title))
-            return new MetadataFetchResult(false, null, "missing fields");
-
-        return new MetadataFetchResult(true, MapToMetadata(dto), null);
     }
 
     private static VideoMetadata MapToMetadata(YtDlpMetadataDto dto)
@@ -236,17 +262,37 @@ public sealed class YtDlpRunner
             ExecutablePath: _executable,
             Arguments: argList,
             ExtraEnv: extraEnv,
-            WrapInCmdShell: true);
+            NoIoRedirection: true);
 
         LogInvokeBegin("download", argList, request.Url, extraEnv);
-        string? finalPath = null;
-        var exit = await ProcessSandbox.RunAsync(args,
-            onStdout: line => ParseProgress(line.Text, progress, ref finalPath),
-            cancellationToken: cancellationToken);
+        var exit = await ProcessSandbox.RunAsync(args, cancellationToken: cancellationToken);
         LogInvokeEnd("download", exit);
 
-        if (exit.Cancelled) return new DownloadResult(false, null, BuildDiagnostics(exit), true);
-        if (exit.ExitCode != 0) return new DownloadResult(false, null, BuildDiagnostics(exit), false);
+        // v1.1.23: TTY mode means we cannot parse `[download]` progress lines
+        // from stdout. The pre-determined output template tells us where
+        // yt-dlp wrote the final file: scan the save directory for matches.
+        string? finalPath = null;
+        try
+        {
+            if (Directory.Exists(request.SaveDirectory))
+            {
+                finalPath = Directory.GetFiles(request.SaveDirectory, request.SanitizedFileStem + ".*")
+                    .FirstOrDefault(p => !p.EndsWith(".info.json", StringComparison.OrdinalIgnoreCase)
+                                      && !p.EndsWith(".part",      StringComparison.OrdinalIgnoreCase)
+                                      && !p.EndsWith(".ytdl",      StringComparison.OrdinalIgnoreCase));
+            }
+        }
+        catch { /* best-effort */ }
+
+        if (exit.Cancelled) return new DownloadResult(false, null, "[cancelled]", true);
+        if (exit.ExitCode != 0)
+        {
+            var marker = exit.TimedOut ? "[timeout]" : $"[exit {exit.ExitCode}]";
+            return new DownloadResult(false, null, marker + " — yt-dlp ran in TTY mode; check the console flash for diagnostics or look for *.info.json in TEMP", false);
+        }
+        if (finalPath is null)
+            return new DownloadResult(false, null, "yt-dlp exited cleanly but produced no output file (likely deleted by AV between completion and our scan)", false);
+
         return new DownloadResult(true, finalPath, null, false);
     }
 
@@ -341,13 +387,16 @@ public sealed class YtDlpRunner
             Arguments: argList,
             Timeout: TimeSpan.FromMinutes(2),
             ExtraEnv: extraEnv,
-            WrapInCmdShell: true);
+            NoIoRedirection: true);
 
         LogInvokeBegin("subtitles", argList, url, extraEnv);
         var exit = await ProcessSandbox.RunAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
         LogInvokeEnd("subtitles", exit);
         if (exit.ExitCode != 0)
-            return new SubtitleDownloadResult(false, Array.Empty<string>(), BuildDiagnostics(exit));
+        {
+            var marker = exit.TimedOut ? "[timeout]" : exit.Cancelled ? "[cancelled]" : $"[exit {exit.ExitCode}]";
+            return new SubtitleDownloadResult(false, Array.Empty<string>(), marker);
+        }
 
         // Discover what yt-dlp actually wrote. yt-dlp may serve fewer (or different)
         // language tags than requested when a language has only auto-captions; rely

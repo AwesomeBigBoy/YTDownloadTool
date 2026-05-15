@@ -35,38 +35,45 @@ public static class ProcessSandbox
             argSource = new[] { "/c", args.ExecutablePath }.Concat(args.Arguments);
         }
 
+        // v1.1.23: TTY mode is the actual fix for the AD-environment hang. Real
+        // root cause was endpoint security software's Web Reputation: it drops the
+        // application-layer payload for any process whose stdout is a redirected
+        // pipe (heuristic: "headless malware-like"), while allowing the same
+        // binary when stdout is a real console. We support both modes:
+        //
+        //   args.NoIoRedirection == false (default, used for ffmpeg etc.):
+        //     redirect everything, capture output via pipes. The historical path.
+        //
+        //   args.NoIoRedirection == true (used for yt-dlp on managedhosts):
+        //     don't redirect anything, force CreateNoWindow=false so the child
+        //     gets a real console with TTY stdio. Output goes to a visible
+        //     console window for ~1-2s. Callers must arrange for the binary to
+        //     write its results to a file (--write-info-json / --output) — pipe
+        //     capture is no longer available.
         var info = new ProcessStartInfo
         {
             FileName = fileName,
             WorkingDirectory = args.WorkingDirectory ?? Path.GetDirectoryName(args.ExecutablePath),
             UseShellExecute = false,
-            // v1.1.21: CreateNoWindow=false to test the theory that a console-less
-            // child hangs PyInstaller-frozen yt-dlp during Python init on managed
-            // hosts. The failure signature in v1.1.20 was: yt-dlp.exe spawned (PID
-            // present), ~300 MB RAM (Python loaded), 3% CPU (alive but not progressing),
-            // zero network, zero output for 30 s. The same yt-dlp.exe invoked from
-            // a plain CMD (which has a console) works fine. Console-less invocation
-            // is the only remaining structural difference after v1.1.18's env-inherit
-            // and stdin-close fixes.
-            //
-            // Cost: a brief console window will flash each time yt-dlp or ffmpeg
-            // launches. If this fix works, v1.1.22 will switch to a Win32-allocated
-            // hidden console (CREATE_NEW_CONSOLE + ShowWindow SW_HIDE) so users
-            // get a console-equipped child without the visible flash.
-            CreateNoWindow = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            // v1.1.18: redirect stdin so we can close it immediately after Start.
-            // Without redirection, the child inherits the parent's stdin handle.
-            // For a GUI parent process with no attached console, that handle is
-            // invalid, and a PyInstaller-frozen yt-dlp.exe child can hang on the
-            // first Python stdin probe (terminal detection, isatty check, etc.)
-            // producing the "30s timeout, no stdout, no stderr" failure mode
-            // observed on managed hosts.
-            RedirectStandardInput = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
         };
+        if (args.NoIoRedirection)
+        {
+            info.CreateNoWindow        = false;
+            info.RedirectStandardOutput = false;
+            info.RedirectStandardError  = false;
+            info.RedirectStandardInput  = false;
+        }
+        else
+        {
+            // Pre-v1.1.23 path. Kept for ffmpeg invocations where pipe capture
+            // is still useful (ffmpeg doesn't trigger endpoint security software's heuristic).
+            info.CreateNoWindow        = false; // v1.1.21
+            info.RedirectStandardOutput = true;
+            info.RedirectStandardError  = true;
+            info.RedirectStandardInput  = true; // v1.1.18: close immediately to avoid isatty hang
+            info.StandardOutputEncoding = Encoding.UTF8;
+            info.StandardErrorEncoding  = Encoding.UTF8;
+        }
 
         foreach (var a in argSource) info.ArgumentList.Add(a);
 
@@ -147,12 +154,17 @@ public static class ProcessSandbox
             return new ProcessExitInfo(-1, $"Process.Start failed: {ex.GetType().Name}: {ex.Message}", false, false, false, false);
         }
 
-        // v1.1.18: close child's stdin immediately so it gets EOF on first read.
-        // Pairs with RedirectStandardInput=true above — see comment there.
-        try { process.StandardInput.Close(); } catch { }
+        if (!args.NoIoRedirection)
+        {
+            // v1.1.18: close child's stdin immediately so it gets EOF on first read.
+            // Pairs with RedirectStandardInput=true above — see comment there.
+            try { process.StandardInput.Close(); } catch { }
 
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+        }
+        // else: NoIoRedirection mode — no pipes to manage. yt-dlp writes its
+        // output to a file the caller specified (--write-info-json / --output).
 
         var cancelTask = WaitForCancellationAsync(process, cancellationToken);
         var timeoutTask = args.Timeout is { } t
