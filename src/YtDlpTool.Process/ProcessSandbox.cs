@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 
@@ -6,6 +7,13 @@ namespace YtDlpTool.Process;
 public static class ProcessSandbox
 {
     private static readonly TimeSpan KillGrace = TimeSpan.FromMilliseconds(800);
+
+    // Fix B (v1.1.8): when a child hangs or fails with empty stderr the only
+    // diagnostic available is what it wrote to stdout. yt-dlp emits its
+    // [download]/[ExtractAudio]/[Merger]/[Metadata] lines there. Keeping the
+    // last 30 lines in a bounded ring buffer gives enough context for the field
+    // bug reports without unbounded memory growth.
+    private const int RecentStdoutCapacity = 30;
 
     public static async Task<ProcessExitInfo> RunAsync(
         ProcessStartArguments args,
@@ -33,6 +41,10 @@ public static class ProcessSandbox
         long stdoutBytes = 0, stderrBytes = 0;
         var stdoutLimitExceeded = false;
         var stderrLimitExceeded = false;
+        // Bounded ring of recent stdout lines for ProcessExitInfo.RecentStdout.
+        // ConcurrentQueue + manual TryDequeue keeps Count <= RecentStdoutCapacity
+        // under concurrent OutputDataReceived callbacks without locking.
+        var recentStdout = new ConcurrentQueue<string>();
 
         process.OutputDataReceived += (_, e) =>
         {
@@ -44,6 +56,9 @@ public static class ProcessSandbox
                 try { process.Kill(entireProcessTree: true); } catch { }
                 return;
             }
+            recentStdout.Enqueue(e.Data);
+            while (recentStdout.Count > RecentStdoutCapacity)
+                recentStdout.TryDequeue(out string? _);
             onStdout?.Invoke(new ProcessStdoutLine(e.Data, DateTime.UtcNow));
         };
 
@@ -113,7 +128,8 @@ public static class ProcessSandbox
             TimedOut: timedOut,
             Cancelled: cancelled,
             StdoutLimitExceeded: stdoutLimitExceeded,
-            StderrLimitExceeded: stderrLimitExceeded);
+            StderrLimitExceeded: stderrLimitExceeded,
+            RecentStdout: string.Join('\n', recentStdout));
     }
 
     private static async Task WaitForCancellationAsync(System.Diagnostics.Process process, CancellationToken ct)

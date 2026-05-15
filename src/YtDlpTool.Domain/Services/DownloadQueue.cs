@@ -230,7 +230,9 @@ public sealed class DownloadQueue : IDisposable
             }
 
             // If the watchdog cancelled the job, rewrite the result so the UI sees a failure
-            // with a useful message instead of a generic "cancelled".
+            // with a useful message instead of a generic "cancelled". Preserve any
+            // diagnostics the executor attached (Fix B v1.1.8: stderr + stdout-tail) so
+            // the download.failed log isn't empty even when stderr was silent.
             if (result.WasCancelled && Interlocked.CompareExchange(ref stuckCancelled, 0, 0) == 1)
             {
                 result = new DownloadExecutionResult(
@@ -239,7 +241,8 @@ public sealed class DownloadQueue : IDisposable
                     new MappedError(ErrorCategory.NetworkError,
                         "下載卡住，請選擇其他畫質或音質重新下載",
                         "E-STUCK01",
-                        true),
+                        true,
+                        RawDetails: result.Error?.RawDetails),
                     WasCancelled: false);
             }
 
@@ -286,7 +289,8 @@ public sealed class DownloadQueue : IDisposable
                             new MappedError(ErrorCategory.NetworkError,
                                 "下載卡住，請選擇其他畫質或音質重新下載",
                                 "E-STUCK01",
-                                true),
+                                true,
+                                RawDetails: result.Error?.RawDetails),
                             WasCancelled: false);
                     }
                 }

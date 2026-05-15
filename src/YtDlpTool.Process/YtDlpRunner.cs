@@ -101,13 +101,20 @@ public sealed class YtDlpRunner
             "--progress-template",
             "[download] {\"percent\":%(progress._percent_str)s,\"speed\":\"%(progress._speed_str)s\",\"eta\":\"%(progress._eta_str)s\"}",
             "--no-playlist",
-            "--no-warnings",
-            // Resilience against transient YouTube rate-limit hits and CDN hiccups —
-            // particularly important for --download-sections which makes more range
-            // requests per minute than a normal full download.
-            "--retries", "10",
-            "--fragment-retries", "10",
-            "--retry-sleep", "5",
+            // Fix B (v1.1.8): KEEP warnings on the download path. yt-dlp's WARNING
+            // lines surface the actual reason a clip download stalls (e.g. "Unable
+            // to extract DASH manifest, falling back to single stream") and feed
+            // ProcessSandbox.RecentStdout so bug reports actually have a
+            // chain of evidence. The metadata path still uses --no-warnings because
+            // its stdout is parsed as JSON.
+            //
+            // Retries dropped from 10 to 3 and retry-sleep from 5s to 3s. With the
+            // old 10x5s the silent retry loop alone could exceed the 90s watchdog;
+            // 3 retries x 3s = 9s max silence per network blip, with warnings now
+            // emitting during each retry so the watchdog clock resets.
+            "--retries", "3",
+            "--fragment-retries", "3",
+            "--retry-sleep", "3",
             "--output",
             BuildOutputTemplate(request),
         });
@@ -129,9 +136,35 @@ public sealed class YtDlpRunner
             onStdout: line => ParseProgress(line.Text, progress, ref finalPath),
             cancellationToken: cancellationToken);
 
-        if (exit.Cancelled) return new DownloadResult(false, null, exit.Stderr, true);
-        if (exit.ExitCode != 0) return new DownloadResult(false, null, exit.Stderr, false);
+        if (exit.Cancelled) return new DownloadResult(false, null, BuildDiagnostics(exit), true);
+        if (exit.ExitCode != 0) return new DownloadResult(false, null, BuildDiagnostics(exit), false);
         return new DownloadResult(true, finalPath, null, false);
+    }
+
+    /// <summary>
+    /// Fix B (v1.1.8): builds a combined diagnostic blob from stderr + recent stdout.
+    /// yt-dlp can hang or fail while writing nothing to stderr (e.g. silent retry
+    /// loops, fragment retries with progress bars on stdout only). Including the
+    /// stdout tail gives ErrorMapper and download.failed logs a useful payload even
+    /// when stderr is empty. When stderr is empty we omit its [stderr] heading
+    /// entirely so ErrorMapper's last-line fallback still hits the stdout content.
+    /// </summary>
+    private static string BuildDiagnostics(ProcessExitInfo exit)
+    {
+        var hasStderr = !string.IsNullOrWhiteSpace(exit.Stderr);
+        var hasStdout = !string.IsNullOrWhiteSpace(exit.RecentStdout);
+        if (!hasStderr && !hasStdout) return "";
+        var sb = new System.Text.StringBuilder();
+        if (hasStdout)
+        {
+            sb.Append("[stdout-tail]\n").Append(exit.RecentStdout);
+            if (hasStderr) sb.Append('\n');
+        }
+        if (hasStderr)
+        {
+            sb.Append("[stderr]\n").Append(exit.Stderr);
+        }
+        return sb.ToString();
     }
 
     private static IEnumerable<string> BuildFormatArgs(DownloadRequest r)

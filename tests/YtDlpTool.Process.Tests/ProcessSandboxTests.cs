@@ -61,6 +61,33 @@ public class ProcessSandboxTests
     }
 
     [Fact]
+    public async Task ProcessSandbox_LongStdoutHistory_RetainsLast30Lines()
+    {
+        // Fix B (v1.1.8): the sandbox now keeps a bounded ring buffer of the last
+        // 30 stdout lines and surfaces it on ProcessExitInfo.RecentStdout, so that
+        // download.failed logs still have a payload when stderr is empty (e.g. a
+        // silent yt-dlp retry loop killed by the watchdog).
+        var args = new ProcessStartArguments(
+            ExecutablePath: CmdPath,
+            // /v:on enables delayed expansion; %i becomes the loop variable inside
+            // a single-line `for /L`. We emit 50 lines so the ring buffer must drop
+            // lines 1..20 and keep only 21..50.
+            Arguments: new[] { "/c", "for /L %i in (1,1,50) do @echo line%i" });
+        var result = await ProcessSandbox.RunAsync(args);
+        Assert.Equal(0, result.ExitCode);
+        Assert.False(string.IsNullOrEmpty(result.RecentStdout));
+
+        var retained = result.RecentStdout.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(30, retained.Length);
+        // Line 20 (and anything before) must have been evicted.
+        Assert.DoesNotContain("line20", retained);
+        Assert.DoesNotContain("line1", retained);
+        // Line 21 should be the new head, line 50 the tail.
+        Assert.Equal("line21", retained[0]);
+        Assert.Equal("line50", retained[^1]);
+    }
+
+    [Fact]
     public async Task Run_EnvironmentIsWhitelisted()
     {
         // Set a variable in our process that should NOT propagate to the child.
