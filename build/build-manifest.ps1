@@ -29,6 +29,13 @@ $files = @(
     @{
         name = 'ffmpeg.exe'; component = 'Ffmpeg'; version = $FfmpegVersion
         path = Join-Path $PortableDir 'bin\ffmpeg.exe'; rel = 'bin\ffmpeg.exe'
+    },
+    @{
+        # v1.1.32: ffprobe.exe ships alongside ffmpeg.exe (same version, same
+        # component so the updater treats them as a unit). Required by yt-dlp's
+        # --embed-thumbnail step for single-stream downloads (VideoOnly mode).
+        name = 'ffprobe.exe'; component = 'Ffmpeg'; version = $FfmpegVersion
+        path = Join-Path $PortableDir 'bin\ffprobe.exe'; rel = 'bin\ffprobe.exe'
     }
 )
 
