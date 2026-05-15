@@ -12,6 +12,17 @@ public static class ErrorMapper
     // the more-specific category to win.
     private static readonly Rule[] Rules =
     {
+        // PO Token requirement: YouTube blocks many HTTPS formats unless the client
+        // sends a Proof-of-Origin token. yt-dlp logs "...require a GVS PO Token which
+        // was not provided. They will be skipped..." per skipped client. When ALL
+        // clients are skipped the download fails. Place this rule FIRST so the
+        // user-facing message reflects the actual cause instead of falling through
+        // to the generic YouTubeRefused/AUTH001 "不支援登入下載".
+        new(ErrorCategory.YouTubeRefused,     "E-PO-TOKEN",
+            "YouTube 對此影片要求驗證碼 (PO Token)，請改試其他畫質或稍後再試；若仍失敗，可能需更新 yt-dlp 元件（設定→進階→重新下載元件）", false,
+            new(@"GVS PO Token|require a PO Token|PO Token (?:was|is) not provided|missing.*po.?token",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase)),
+
         new(ErrorCategory.PremiereUpcoming,   "E-PREMIER",
             "這是預定首播的影片，請首播開始後再下載", false,
             new(@"Premieres in|This live event will begin|premiere", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
