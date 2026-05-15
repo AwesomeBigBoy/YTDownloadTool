@@ -26,6 +26,17 @@ public sealed class HttpUpdateClient : IUpdateHttpClient, IDisposable
         return await JsonSerializer.DeserializeAsync(stream, GitHubJsonContext.Default.GitHubReleaseDto, ct).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<GitHubReleaseDto>> GetRecentReleasesAsync(string owner, string repo, int limit, CancellationToken ct)
+    {
+        if (limit < 1) limit = 1;
+        if (limit > 100) limit = 100;
+        var url = $"https://api.github.com/repos/{owner}/{repo}/releases?per_page={limit}";
+        var stream = await _http.GetStreamAsync(url, ct).ConfigureAwait(false);
+        await using var _ = stream.ConfigureAwait(false);
+        var list = await JsonSerializer.DeserializeAsync(stream, GitHubJsonContext.Default.ListGitHubReleaseDto, ct).ConfigureAwait(false);
+        return (IReadOnlyList<GitHubReleaseDto>?)list ?? Array.Empty<GitHubReleaseDto>();
+    }
+
     public async Task<string> GetStringAsync(string url, CancellationToken ct) =>
         await _http.GetStringAsync(url, ct).ConfigureAwait(false);
 
