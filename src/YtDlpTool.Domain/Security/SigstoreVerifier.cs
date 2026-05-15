@@ -37,12 +37,31 @@ public static class SigstoreVerifier
         if (bundle is null)
             return SigstoreVerificationResult.Fail("簽章資料無內容");
 
+        // The release.yml workflow uses `cosign sign-blob --bundle` which (without the
+        // newer --new-bundle-format flag) emits the legacy cosign bundle wire shape:
+        //   { base64Signature, cert, rekorBundle: { SignedEntryTimestamp, Payload } }
+        // The protobuf-bundle shape (verificationMaterial.{certificate|x509CertificateChain})
+        // is only produced by cosign v2 + --new-bundle-format, or by `cosign attest-blob`.
+        // Dispatch on whichever shape is populated.
+        if (!string.IsNullOrEmpty(bundle.Cert) && !string.IsNullOrEmpty(bundle.Base64Signature))
+            return VerifyLegacy(artifactBytes, bundle, options);
+        if (bundle.VerificationMaterial is not null)
+            return VerifyProtobuf(artifactBytes, bundle, options);
+
+        return SigstoreVerificationResult.Fail("簽章格式無法辨識");
+    }
+
+    private static SigstoreVerificationResult VerifyProtobuf(
+        ReadOnlySpan<byte> artifactBytes, SigstoreBundle bundle, SigstoreVerifierOptions options)
+    {
+        var material = bundle.VerificationMaterial!;
+
         // Cosign sign-blob emits verificationMaterial.x509CertificateChain.certificates[0].rawBytes,
         // while older / alternative producers may use verificationMaterial.certificate.rawBytes.
         // Accept both shapes.
-        var certRaw = bundle.VerificationMaterial.Certificate.RawBytes;
-        if (string.IsNullOrWhiteSpace(certRaw) && bundle.VerificationMaterial.X509CertificateChain.Certificates.Length > 0)
-            certRaw = bundle.VerificationMaterial.X509CertificateChain.Certificates[0].RawBytes;
+        var certRaw = material.Certificate.RawBytes;
+        if (string.IsNullOrWhiteSpace(certRaw) && material.X509CertificateChain.Certificates.Length > 0)
+            certRaw = material.X509CertificateChain.Certificates[0].RawBytes;
         if (string.IsNullOrWhiteSpace(certRaw))
             return SigstoreVerificationResult.Fail("簽章缺少憑證");
 
@@ -60,10 +79,10 @@ public static class SigstoreVerifier
         var sanCheck = ValidateSan(leaf, options.ExpectedSanRegex, options.ExpectedIssuer);
         if (!sanCheck.IsValid) return sanCheck;
 
-        if (bundle.VerificationMaterial.TlogEntries.Length == 0)
+        if (material.TlogEntries.Length == 0)
             return SigstoreVerificationResult.Fail("缺少 Rekor 透明日誌條目");
 
-        if (!long.TryParse(bundle.VerificationMaterial.TlogEntries[0].IntegratedTime,
+        if (!long.TryParse(material.TlogEntries[0].IntegratedTime,
             NumberStyles.Integer, CultureInfo.InvariantCulture, out var integratedUnix))
             return SigstoreVerificationResult.Fail("Rekor 時間戳格式錯誤");
 
@@ -73,7 +92,7 @@ public static class SigstoreVerifier
 
         // Verify Rekor SignedEntryTimestamp — proves Rekor accepted this entry at
         // integratedTime; otherwise IntegratedTime is attacker-controlled.
-        var setCheck = ValidateRekorSet(bundle.VerificationMaterial.TlogEntries[0], integratedUnix);
+        var setCheck = ValidateRekorSet(material.TlogEntries[0], integratedUnix);
         if (!setCheck.IsValid) return setCheck;
 
         var chainCheck = ValidateChain(leaf, options.TrustedRootPem);
@@ -81,6 +100,105 @@ public static class SigstoreVerifier
 
         var sigCheck = ValidateSignature(leaf, artifactBytes, bundle.MessageSignature);
         if (!sigCheck.IsValid) return sigCheck;
+
+        return SigstoreVerificationResult.Ok();
+    }
+
+    private static SigstoreVerificationResult VerifyLegacy(
+        ReadOnlySpan<byte> artifactBytes, SigstoreBundle bundle, SigstoreVerifierOptions options)
+    {
+        // (a) Decode the cert. In the legacy bundle, `cert` is base64-encoded PEM text
+        // (so it's base64(PEM-string), where the PEM body is itself base64(DER)). Two-step
+        // decode: outer base64 → PEM string, then X509Certificate2.CreateFromPem handles
+        // the inner base64.
+        string pemText;
+        try
+        {
+            var pemBytes = Convert.FromBase64String(bundle.Cert!);
+            pemText = Encoding.UTF8.GetString(pemBytes);
+        }
+        catch (Exception ex)
+        {
+            return SigstoreVerificationResult.Fail($"憑證 base64 解碼失敗：{ex.Message}");
+        }
+
+        X509Certificate2 leaf;
+        try
+        {
+            leaf = X509Certificate2.CreateFromPem(pemText);
+        }
+        catch (Exception ex)
+        {
+            return SigstoreVerificationResult.Fail($"憑證 PEM 解析失敗：{ex.Message}");
+        }
+
+        // (b) SAN + OIDC issuer match.
+        var sanCheck = ValidateSan(leaf, options.ExpectedSanRegex, options.ExpectedIssuer);
+        if (!sanCheck.IsValid) return sanCheck;
+
+        // (c) Time validity at integratedTime (from rekorBundle.Payload).
+        if (bundle.RekorBundle?.Payload is null)
+            return SigstoreVerificationResult.Fail("Rekor 資料缺失");
+
+        var integratedUnix = bundle.RekorBundle.Payload.IntegratedTime;
+        var integratedAt = DateTimeOffset.FromUnixTimeSeconds(integratedUnix);
+        if (integratedAt < leaf.NotBefore || integratedAt > leaf.NotAfter)
+            return SigstoreVerificationResult.Fail("簽章時間不在憑證有效期內");
+
+        // (d) Cert chain to Fulcio root.
+        var chainCheck = ValidateChain(leaf, options.TrustedRootPem);
+        if (!chainCheck.IsValid) return chainCheck;
+
+        // (e) Verify ECDSA signature over the artifact bytes.
+        byte[] signature;
+        try { signature = Convert.FromBase64String(bundle.Base64Signature!); }
+        catch { return SigstoreVerificationResult.Fail("簽章編碼錯誤"); }
+
+        bool ok;
+        using (var ecdsa = leaf.GetECDsaPublicKey())
+        {
+            if (ecdsa is null) return SigstoreVerificationResult.Fail("憑證無 ECDSA 公鑰");
+            ok = ecdsa.VerifyData(
+                artifactBytes,
+                signature,
+                HashAlgorithmName.SHA256,
+                DSASignatureFormat.Rfc3279DerSequence);
+        }
+        if (!ok) return SigstoreVerificationResult.Fail("簽章驗證失敗");
+
+        // (f) Verify Rekor SignedEntryTimestamp. Legacy form: ECDSA P-256 SHA-256 over
+        // the canonical JSON of rekorBundle.Payload. Keys appear in alphabetical order:
+        // body, integratedTime, logID, logIndex.
+        if (string.IsNullOrEmpty(bundle.RekorBundle.SignedEntryTimestamp))
+            return SigstoreVerificationResult.Fail("Rekor SET 缺失");
+
+        var payload = bundle.RekorBundle.Payload;
+        var canonicalPayload =
+            $"{{\"body\":\"{payload.Body}\",\"integratedTime\":{integratedUnix}," +
+            $"\"logID\":\"{payload.LogID}\",\"logIndex\":{payload.LogIndex}}}";
+        var setBytes = Encoding.UTF8.GetBytes(canonicalPayload);
+
+        byte[] setSig;
+        try { setSig = Convert.FromBase64String(bundle.RekorBundle.SignedEntryTimestamp); }
+        catch { return SigstoreVerificationResult.Fail("Rekor SET 編碼錯誤"); }
+
+        var rekorKeyBytes = ExtractPublicKeyBytesFromPem(SigstoreRoots.RekorPublicKeyPem);
+        if (rekorKeyBytes is null)
+            return SigstoreVerificationResult.Fail("Rekor 公鑰格式錯誤");
+
+        try
+        {
+            using var rekorEcdsa = ECDsa.Create();
+            rekorEcdsa.ImportSubjectPublicKeyInfo(rekorKeyBytes, out _);
+            if (!rekorEcdsa.VerifyData(setBytes, setSig,
+                    HashAlgorithmName.SHA256,
+                    DSASignatureFormat.Rfc3279DerSequence))
+                return SigstoreVerificationResult.Fail("Rekor SET 驗證失敗");
+        }
+        catch (Exception ex)
+        {
+            return SigstoreVerificationResult.Fail($"Rekor 驗證錯誤：{ex.Message}");
+        }
 
         return SigstoreVerificationResult.Ok();
     }
