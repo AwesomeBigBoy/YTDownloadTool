@@ -68,25 +68,17 @@ public sealed class AppHost : IDisposable
         var journaledOnEvent = JournaledQueue.Wrap(StateJournal, OnQueueEvent);
         Queue = new DownloadQueue(executor, Config.ConcurrentDownloads, journaledOnEvent, Logger);
 
-        // Fix D: log once at startup whether a system proxy was detected. We hash
-        // the proxy URL rather than logging it raw to avoid leaking internal host
-        // names (per the same privacy convention used for job URLs).
+        // Fix D + WinHTTP fallback: log once at startup whether a system proxy was
+        // detected. We hash the proxy URL rather than logging it raw to avoid
+        // leaking internal host names (per the same privacy convention used for
+        // job URLs). Detection now covers explicit ProxyServer registry entries
+        // AND WPAD/PAC auto-resolution via WinHTTP for domain-joined hosts.
         var detectedProxy = SystemProxy.DetectHttpProxy();
-        if (!string.IsNullOrEmpty(detectedProxy))
+        Logger.Info("system.proxy.detected", new Dictionary<string, string>
         {
-            Logger.Info("system.proxy.detected", new Dictionary<string, string>
-            {
-                ["status"] = "configured",
-                ["proxy_host_hash"] = AppLogger.HashSuffix(detectedProxy)
-            });
-        }
-        else
-        {
-            Logger.Info("system.proxy.detected", new Dictionary<string, string>
-            {
-                ["status"] = "none"
-            });
-        }
+            ["status"] = detectedProxy is null ? "none" : "detected",
+            ["proxy_host_hash"] = detectedProxy is null ? "" : AppLogger.HashSuffix(detectedProxy)
+        });
     }
 
     public event EventHandler<QueueEvent>? QueueEventRaised;
