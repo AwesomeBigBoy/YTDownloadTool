@@ -100,6 +100,7 @@ jobs:
           cosign sign-blob --yes --bundle "$stage/YtDlpTool.exe.sigstore" "$stage/YtDlpTool.exe"
           cosign sign-blob --yes --bundle "$stage/yt-dlp.exe.sigstore"    "$stage/bin/yt-dlp.exe"
           cosign sign-blob --yes --bundle "$stage/ffmpeg.exe.sigstore"    "$stage/bin/ffmpeg.exe"
+          cosign sign-blob --yes --bundle "$stage/ffprobe.exe.sigstore"   "$stage/bin/ffprobe.exe"
 
       - name: Pack portable zip
         id: zip
@@ -130,6 +131,8 @@ jobs:
             "$stage/yt-dlp.exe.sigstore",
             "$stage/bin/ffmpeg.exe",
             "$stage/ffmpeg.exe.sigstore",
+            "$stage/bin/ffprobe.exe",
+            "$stage/ffprobe.exe.sigstore",
             $zip
           )
 

@@ -40,11 +40,22 @@ $ffmpegZipSha = Verify-Sha256 -Path $ffmpegZip -Expected $manifest.ffmpeg.sha256
 
 $ffmpegExtractDir = Join-Path $env:TEMP "ffmpeg-extract-$(New-Guid)"
 Expand-Archive -Path $ffmpegZip -DestinationPath $ffmpegExtractDir -Force
+
 $ffmpegExeSrc = Join-Path $ffmpegExtractDir $manifest.ffmpeg.executableInsideZip
 if (-not (Test-Path $ffmpegExeSrc)) {
     throw "ffmpeg.exe not found at expected path inside zip: $($manifest.ffmpeg.executableInsideZip)"
 }
 Copy-Item -Path $ffmpegExeSrc -Destination (Join-Path $binDir 'ffmpeg.exe') -Force
+
+# v1.1.32: also extract ffprobe.exe — yt-dlp needs it for --embed-thumbnail
+# in the VideoOnly path. Without ffprobe, single-stream downloads fail at
+# ~70% with the misleading "ffprobe not found" / ComponentMissing error.
+$ffprobeExeSrc = Join-Path $ffmpegExtractDir $manifest.ffmpeg.ffprobeInsideZip
+if (-not (Test-Path $ffprobeExeSrc)) {
+    throw "ffprobe.exe not found at expected path inside zip: $($manifest.ffmpeg.ffprobeInsideZip)"
+}
+Copy-Item -Path $ffprobeExeSrc -Destination (Join-Path $binDir 'ffprobe.exe') -Force
+
 Remove-Item -Recurse -Force $ffmpegExtractDir
 Remove-Item -Force $ffmpegZip
 

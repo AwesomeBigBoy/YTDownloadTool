@@ -102,6 +102,14 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
                 Math.Min(mediaProgressMax, p.Percent * mediaProgressMax / 100.0),
                 p.BytesPerSecond, p.Eta)));
 
+        // v1.1.32: EmbedThumbnail OFF for VideoOnly mode. yt-dlp's thumbnail
+        // embed step on a single-stream video file goes through an ffprobe
+        // sub-invocation (to inspect thumbnail metadata) that fails on installs
+        // missing ffprobe.exe — producing a misleading "ffprobe not found" /
+        // ComponentMissing error at ~70 % download. v1.1.32 also bundles
+        // ffprobe.exe so this is belt-and-suspenders; but a video-only silent
+        // file gains little from an embedded cover image anyway.
+        var embedThumbnail = !hasClip && job.Mode != DownloadMode.VideoOnly;
         var mediaRequest = new DownloadRequest(
             Url: job.Url,
             Mode: job.Mode,
@@ -110,7 +118,7 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
             ClipRange: null,
             SaveDirectory: job.SaveDirectory,
             SanitizedFileStem: mediaStem,
-            EmbedThumbnail: !hasClip,    // post-cut thumbnail re-embed would re-encode
+            EmbedThumbnail: embedThumbnail,
             ForceOverwrite: true);       // intermediate stem — safe to clobber
 
         var mediaSw = Stopwatch.StartNew();
