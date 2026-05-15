@@ -52,12 +52,21 @@
                                Foreground="{StaticResource Brush.TextPrimary}"
                                VerticalAlignment="Center" />
                 </StackPanel>
-                <Button x:Name="SettingsButton" Grid.Column="2"
-                        Style="{StaticResource IconButton}"
-                        Content="⚙"
-                        FontSize="16"
-                        ToolTip="{StaticResource Settings.Title}"
-                        Click="OnSettingsClicked" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button x:Name="OpenFolderButton"
+                            Style="{StaticResource IconButton}"
+                            Content="📁"
+                            FontSize="16"
+                            ToolTip="開啟下載資料夾"
+                            Click="OnOpenFolderClicked" />
+                    <Button x:Name="SettingsButton"
+                            Style="{StaticResource IconButton}"
+                            Content="⚙"
+                            FontSize="16"
+                            Margin="4,0,0,0"
+                            ToolTip="{StaticResource Settings.Title}"
+                            Click="OnSettingsClicked" />
+                </StackPanel>
             </Grid>
 
             <!-- Form: hosts URL input, format selector, advanced options, save location, button, queue -->
