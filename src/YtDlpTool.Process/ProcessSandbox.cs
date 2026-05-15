@@ -34,7 +34,7 @@ public static class ProcessSandbox
 
         foreach (var a in args.Arguments) info.ArgumentList.Add(a);
 
-        ConfigureSandboxedEnvironment(info, args.ExecutablePath);
+        ConfigureSandboxedEnvironment(info, args.ExecutablePath, args.ExtraEnv);
 
         using var process = new System.Diagnostics.Process { StartInfo = info, EnableRaisingEvents = true };
         var stderr = new StringBuilder();
@@ -170,7 +170,10 @@ public static class ProcessSandbox
         "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH",
     };
 
-    private static void ConfigureSandboxedEnvironment(ProcessStartInfo info, string exePath)
+    private static void ConfigureSandboxedEnvironment(
+        ProcessStartInfo info,
+        string exePath,
+        IReadOnlyDictionary<string, string>? extraEnv)
     {
         info.EnvironmentVariables.Clear();
         var binDir = Path.GetDirectoryName(exePath) ?? "";
@@ -189,6 +192,20 @@ public static class ProcessSandbox
             var value = Environment.GetEnvironmentVariable(name);
             if (!string.IsNullOrEmpty(value))
                 info.EnvironmentVariables[name] = value;
+        }
+
+        // v1.1.17: explicit injection wins over the pass-through whitelist.
+        // Callers that need a specific env var to reach the child (e.g.,
+        // SSL_CERT_FILE pointing at the bundled CA file) use this path so
+        // the value cannot be silently dropped by an unreliable global-env
+        // round-trip.
+        if (extraEnv is not null)
+        {
+            foreach (var kv in extraEnv)
+            {
+                if (!string.IsNullOrEmpty(kv.Value))
+                    info.EnvironmentVariables[kv.Key] = kv.Value;
+            }
         }
     }
 }

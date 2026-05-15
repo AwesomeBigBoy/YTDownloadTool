@@ -7,11 +7,29 @@ public sealed class YtDlpRunner
 {
     private readonly string _executable;
     private readonly bool _allowUntrustedCerts;
+    private readonly string? _caBundlePath;
 
-    public YtDlpRunner(string executable, bool allowUntrustedCerts = false)
+    public YtDlpRunner(string executable, bool allowUntrustedCerts = false, string? caBundlePath = null)
     {
         _executable = executable;
         _allowUntrustedCerts = allowUntrustedCerts;
+        _caBundlePath = caBundlePath;
+    }
+
+    // v1.1.17: explicit env-var injection for yt-dlp child processes. We
+    // bundle SSL_CERT_FILE, REQUESTS_CA_BUNDLE, and CURL_CA_BUNDLE all
+    // pointing at the same PEM file so whichever HTTP layer yt-dlp's
+    // current release uses (urllib via certifi, requests, or urllib3)
+    // sees the site-installed CA without any code knowing which one matters.
+    private IReadOnlyDictionary<string, string>? BuildExtraEnv()
+    {
+        if (string.IsNullOrEmpty(_caBundlePath) || !File.Exists(_caBundlePath)) return null;
+        return new Dictionary<string, string>
+        {
+            ["SSL_CERT_FILE"] = _caBundlePath,
+            ["REQUESTS_CA_BUNDLE"] = _caBundlePath,
+            ["CURL_CA_BUNDLE"] = _caBundlePath,
+        };
     }
 
     public async Task<MetadataFetchResult> FetchMetadataAsync(
@@ -32,7 +50,8 @@ public sealed class YtDlpRunner
         var args = new ProcessStartArguments(
             ExecutablePath: _executable,
             Arguments: fetchArgs,
-            Timeout: TimeSpan.FromSeconds(30));
+            Timeout: TimeSpan.FromSeconds(30),
+            ExtraEnv: BuildExtraEnv());
 
         var stdoutLines = new List<string>();
         var exit = await ProcessSandbox.RunAsync(args,
@@ -173,7 +192,8 @@ public sealed class YtDlpRunner
 
         var args = new ProcessStartArguments(
             ExecutablePath: _executable,
-            Arguments: argList);
+            Arguments: argList,
+            ExtraEnv: BuildExtraEnv());
 
         string? finalPath = null;
         var exit = await ProcessSandbox.RunAsync(args,
@@ -273,7 +293,8 @@ public sealed class YtDlpRunner
         var args = new ProcessStartArguments(
             ExecutablePath: _executable,
             Arguments: argList,
-            Timeout: TimeSpan.FromMinutes(2));
+            Timeout: TimeSpan.FromMinutes(2),
+            ExtraEnv: BuildExtraEnv());
 
         var exit = await ProcessSandbox.RunAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
         if (exit.ExitCode != 0)
