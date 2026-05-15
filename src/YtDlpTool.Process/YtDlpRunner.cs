@@ -89,7 +89,8 @@ public sealed class YtDlpRunner
             ExecutablePath: _executable,
             Arguments: fetchArgs,
             Timeout: TimeSpan.FromSeconds(30),
-            ExtraEnv: extraEnv);
+            ExtraEnv: extraEnv,
+            WrapInCmdShell: true);
 
         LogInvokeBegin("metadata", fetchArgs, url, extraEnv);
         var stdoutLines = new List<string>();
@@ -234,7 +235,8 @@ public sealed class YtDlpRunner
         var args = new ProcessStartArguments(
             ExecutablePath: _executable,
             Arguments: argList,
-            ExtraEnv: extraEnv);
+            ExtraEnv: extraEnv,
+            WrapInCmdShell: true);
 
         LogInvokeBegin("download", argList, request.Url, extraEnv);
         string? finalPath = null;
@@ -338,7 +340,8 @@ public sealed class YtDlpRunner
             ExecutablePath: _executable,
             Arguments: argList,
             Timeout: TimeSpan.FromMinutes(2),
-            ExtraEnv: extraEnv);
+            ExtraEnv: extraEnv,
+            WrapInCmdShell: true);
 
         LogInvokeBegin("subtitles", argList, url, extraEnv);
         var exit = await ProcessSandbox.RunAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);

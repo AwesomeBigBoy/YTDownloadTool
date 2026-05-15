@@ -20,9 +20,24 @@ public static class ProcessSandbox
         Action<ProcessStdoutLine>? onStdout = null,
         CancellationToken cancellationToken = default)
     {
+        // v1.1.22: optional cmd.exe wrapper. See ProcessStartArguments.WrapInCmdShell
+        // for the rationale (endpoint software trust). Cmd.exe parses arguments through
+        // its own rules; ArgumentList passes each token as a separate argv entry
+        // to cmd, which then reconstructs the command line for the real exe.
+        string fileName = args.ExecutablePath;
+        IEnumerable<string> argSource = args.Arguments;
+        if (args.WrapInCmdShell)
+        {
+            var systemRoot = Environment.GetEnvironmentVariable("SystemRoot") ?? @"C:\Windows";
+            fileName = Path.Combine(systemRoot, "System32", "cmd.exe");
+            // Prepend "/c" + the original exe path. Cmd will treat the rest as
+            // arguments to that exe.
+            argSource = new[] { "/c", args.ExecutablePath }.Concat(args.Arguments);
+        }
+
         var info = new ProcessStartInfo
         {
-            FileName = args.ExecutablePath,
+            FileName = fileName,
             WorkingDirectory = args.WorkingDirectory ?? Path.GetDirectoryName(args.ExecutablePath),
             UseShellExecute = false,
             // v1.1.21: CreateNoWindow=false to test the theory that a console-less
@@ -53,7 +68,7 @@ public static class ProcessSandbox
             StandardErrorEncoding = Encoding.UTF8,
         };
 
-        foreach (var a in args.Arguments) info.ArgumentList.Add(a);
+        foreach (var a in argSource) info.ArgumentList.Add(a);
 
         ConfigureSandboxedEnvironment(info, args.ExecutablePath, args.ExtraEnv);
 

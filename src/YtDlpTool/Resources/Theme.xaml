@@ -32,7 +32,14 @@
     <Style x:Key="GlassCard" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
-        <Setter Property="BorderThickness" Value="1" />
+        <!-- v1.1.22: BorderThickness 0 to remove the visible white hairline outline
+             on every card. v1.1.20's reduction from 60% → 10% opacity did not
+             satisfy the user (still visible on the saturated Aurora gradient).
+             The 88%-white GlassFill alone provides plenty of contrast against the
+             gradient, and the DropShadowEffect below gives the glass-card depth
+             cue. BorderBrush kept on the style for other styles (e.g. dividers)
+             that share the same brush via DynamicResource. -->
+        <Setter Property="BorderThickness" Value="0" />
         <Setter Property="CornerRadius" Value="14" />
         <Setter Property="Padding" Value="{StaticResource Space.5}" />
         <Setter Property="Effect">
