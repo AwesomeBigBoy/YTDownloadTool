@@ -280,10 +280,15 @@ public static class SigstoreVerifier
         try
         {
             using var root = X509Certificate2.CreateFromPem(trustedRootPem);
+            using var intermediate = X509Certificate2.CreateFromPem(SigstoreRoots.FulcioIntermediatePem);
             using var chain = new X509Chain();
             chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
             chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
             chain.ChainPolicy.CustomTrustStore.Add(root);
+            // Fulcio's short-lived leaf certs are issued by an INTERMEDIATE, not by the
+            // root directly. Without supplying the intermediate via ExtraStore the chain
+            // builder reports PartialChain / UntrustedRoot ("憑證鏈結無法建立於受信任的根授權").
+            chain.ChainPolicy.ExtraStore.Add(intermediate);
             // Sigstore short-lived certs commonly trigger NotTimeValid on later verification;
             // we already validated NotBefore/NotAfter against the integrated time above.
             chain.ChainPolicy.VerificationFlags = X509VerificationFlags.IgnoreNotTimeValid;

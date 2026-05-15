@@ -115,6 +115,13 @@ public sealed class YtDlpRunner
             "--retries", "3",
             "--fragment-retries", "3",
             "--retry-sleep", "3",
+            // Force yt-dlp to try multiple YouTube player clients in order. The default
+            // 'web' client now requires JavaScript signature deobfuscation (the warning
+            // "No supported JavaScript runtime could be found" in clip logs is from
+            // this). 'android' and 'ios' clients return stream URLs that don't need JS
+            // deobfuscation and work without a deno install. yt-dlp tries each client
+            // until one yields usable formats — fixes the clip-stuck-at-Destination bug.
+            "--extractor-args", "youtube:player_client=android,ios,web",
             "--output",
             BuildOutputTemplate(request),
         });
