@@ -67,6 +67,26 @@ public sealed class AppHost : IDisposable
         var executor = new YtDlpDownloadExecutor(YtDlp);
         var journaledOnEvent = JournaledQueue.Wrap(StateJournal, OnQueueEvent);
         Queue = new DownloadQueue(executor, Config.ConcurrentDownloads, journaledOnEvent, Logger);
+
+        // Fix D: log once at startup whether a system proxy was detected. We hash
+        // the proxy URL rather than logging it raw to avoid leaking internal host
+        // names (per the same privacy convention used for job URLs).
+        var detectedProxy = SystemProxy.DetectHttpProxy();
+        if (!string.IsNullOrEmpty(detectedProxy))
+        {
+            Logger.Info("system.proxy.detected", new Dictionary<string, string>
+            {
+                ["status"] = "configured",
+                ["proxy_host_hash"] = AppLogger.HashSuffix(detectedProxy)
+            });
+        }
+        else
+        {
+            Logger.Info("system.proxy.detected", new Dictionary<string, string>
+            {
+                ["status"] = "none"
+            });
+        }
     }
 
     public event EventHandler<QueueEvent>? QueueEventRaised;
