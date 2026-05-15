@@ -102,6 +102,12 @@ public sealed class YtDlpRunner
             "[download] {\"percent\":%(progress._percent_str)s,\"speed\":\"%(progress._speed_str)s\",\"eta\":\"%(progress._eta_str)s\"}",
             "--no-playlist",
             "--no-warnings",
+            // Resilience against transient YouTube rate-limit hits and CDN hiccups —
+            // particularly important for --download-sections which makes more range
+            // requests per minute than a normal full download.
+            "--retries", "10",
+            "--fragment-retries", "10",
+            "--retry-sleep", "5",
             "--output",
             BuildOutputTemplate(request),
         });
@@ -149,6 +155,13 @@ public sealed class YtDlpRunner
     {
         if (r.Mode == DownloadMode.AudioOnly) yield break;
         if (r.SubtitleLanguageCodes.Count == 0) yield break;
+        // When clipping, skip subtitles entirely. yt-dlp downloads subtitles for the
+        // full-length video and tries to embed them into the trimmed media, producing
+        // mistimed captions. The extra subtitle download also seems to push us over
+        // YouTube's rate-limit threshold mid-section more often than without.
+        // If the user wants subtitles on a clip, they can clip first then re-download
+        // with subtitles only on the full video.
+        if (r.ClipRange is not null) yield break;
         yield return "--write-subs";
         yield return "--write-auto-subs";
         yield return "--sub-langs";
