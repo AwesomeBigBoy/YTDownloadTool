@@ -88,25 +88,64 @@ public class ProcessSandboxTests
     }
 
     [Fact]
-    public async Task Run_EnvironmentIsWhitelisted()
+    public async Task Run_OverridesPathAndPythonEncoding()
     {
-        // Set a variable in our process that should NOT propagate to the child.
-        Environment.SetEnvironmentVariable("YTDLP_TEST_SHOULD_NOT_LEAK", "1");
-        try
-        {
-            var lines = new List<string>();
-            var args = new ProcessStartArguments(
-                ExecutablePath: CmdPath,
-                Arguments: new[] { "/c", "set" });
-            var result = await ProcessSandbox.RunAsync(args, l => lines.Add(l.Text));
-            Assert.Equal(0, result.ExitCode);
-            Assert.DoesNotContain(lines, l => l.Contains("YTDLP_TEST_SHOULD_NOT_LEAK"));
-            Assert.Contains(lines, l => l.StartsWith("SystemRoot=", StringComparison.OrdinalIgnoreCase));
-            Assert.Contains(lines, l => l.StartsWith("PYTHONUTF8=", StringComparison.OrdinalIgnoreCase));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("YTDLP_TEST_SHOULD_NOT_LEAK", null);
-        }
+        // v1.1.18: ProcessSandbox no longer strips the parent's environment.
+        // The remaining contract is narrower — only two categories matter:
+        //   1. PATH is always overridden to bin+System32 (hijack defense per §5.2).
+        //   2. PYTHON encoding hints are always set so yt-dlp output is deterministic.
+        // Other parent env vars pass through unchanged, which the previous "leak
+        // forbidden" assertion contradicted. See the v1.1.18 changelog for context.
+        var lines = new List<string>();
+        var args = new ProcessStartArguments(
+            ExecutablePath: CmdPath,
+            Arguments: new[] { "/c", "set" });
+        var result = await ProcessSandbox.RunAsync(args, l => lines.Add(l.Text));
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(lines, l => l.StartsWith("PYTHONUTF8=1", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(lines, l => l.StartsWith("PYTHONIOENCODING=utf-8", StringComparison.OrdinalIgnoreCase));
+        // PATH must be the sandboxed form: starts with the executable's directory
+        // and contains System32, but NOT user-PATH entries like the test runner's
+        // working directory or VCPKG paths.
+        var pathLine = lines.First(l => l.StartsWith("Path=", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("System32", pathLine, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Run_ExtraEnv_PassedToChild()
+    {
+        // v1.1.17: callers can inject env vars explicitly via ProcessStartArguments.ExtraEnv
+        // so values reach the child without going through Environment.SetEnvironmentVariable.
+        // Used by YtDlpRunner to ship SSL_CERT_FILE / REQUESTS_CA_BUNDLE / CURL_CA_BUNDLE
+        // for managed environments with SSL inspection.
+        var lines = new List<string>();
+        var args = new ProcessStartArguments(
+            ExecutablePath: CmdPath,
+            Arguments: new[] { "/c", "set" },
+            ExtraEnv: new Dictionary<string, string>
+            {
+                ["YTDLP_TEST_INJECTED"] = "value-from-extra-env",
+            });
+        var result = await ProcessSandbox.RunAsync(args, l => lines.Add(l.Text));
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(lines, l => l.Equals("YTDLP_TEST_INJECTED=value-from-extra-env", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Run_StdinIsClosed_NoHangOnReadAttempt()
+    {
+        // v1.1.18: stdin is redirected and immediately closed so the child gets EOF
+        // on the first read. PyInstaller-frozen Python tools (yt-dlp) launched from a
+        // GUI parent without a console were hanging because they inherited an invalid
+        // stdin handle and blocked on isatty/terminal probing. Verify the child can
+        // attempt to read stdin and just gets EOF rather than blocking.
+        var args = new ProcessStartArguments(
+            ExecutablePath: CmdPath,
+            // `set /p` reads a line from stdin into VAR — with stdin closed this
+            // returns immediately (no prompt blocking).
+            Arguments: new[] { "/c", "set /p VAR=enter: && echo got:%VAR%" },
+            Timeout: TimeSpan.FromSeconds(5));
+        var result = await ProcessSandbox.RunAsync(args);
+        Assert.False(result.TimedOut, "child blocked on stdin read despite redirect+close");
     }
 }
