@@ -111,6 +111,95 @@ public class UpdateCheckerTests
     }
 
     [Fact]
+    public async Task UpdateChecker_LatestExistsButLacksManifest_FallsBackToRecent()
+    {
+        // Fix 3 case 2: /releases/latest returns a release (e.g. a manually-created
+        // v1.0.0 release from the GitHub UI) that has only "Source code" assets and
+        // no manifest.json. The checker must NOT short-circuit to the friendly
+        // "missing latest" message — it has to enumerate recent releases and pick
+        // the first one that does carry the manifest+sigstore pair.
+        var manifest = new UpdateManifest
+        {
+            AppVersion = "1.2.0",
+            Files = new() { new ManifestFileEntry { Component = UpdateComponent.App, Version = "1.2.0", Name = "YtDlpTool.exe" } }
+        };
+        var manifestJson = JsonSerializer.Serialize(manifest, AppJsonContext.Default.UpdateManifest);
+
+        var latestNoManifest = new GitHubReleaseDto
+        {
+            TagName = "v1.0.0",
+            Draft = false,
+            Prerelease = false,
+            Assets = new()
+            {
+                new GitHubAssetDto { Name = "Source code (zip)", BrowserDownloadUrl = "https://x/src.zip" }
+            }
+        };
+        var olderWithManifest = new GitHubReleaseDto
+        {
+            TagName = "v1.2.0",
+            Draft = false,
+            Prerelease = false,
+            Assets = new()
+            {
+                new GitHubAssetDto { Name = "manifest.json", BrowserDownloadUrl = "https://m" },
+                new GitHubAssetDto { Name = "manifest.json.sigstore", BrowserDownloadUrl = "https://s" }
+            }
+        };
+
+        var http = new FakeHttp
+        {
+            OnGetRelease = () => Task.FromResult<GitHubReleaseDto?>(latestNoManifest),
+            OnGetRecent = () => Task.FromResult<IReadOnlyList<GitHubReleaseDto>>(new List<GitHubReleaseDto>
+            {
+                latestNoManifest,
+                olderWithManifest
+            }),
+            Strings = { ["https://m"] = manifestJson, ["https://s"] = "{not a sigstore bundle}" }
+        };
+        var checker = new UpdateChecker(http, DummyOpts, "o", "r");
+        var result = await checker.CheckAsync(new InstalledVersions("1.0.0", "2026.01.01", "7.1"), CancellationToken.None);
+
+        // The older-with-manifest release must have been picked up by the fallback
+        // and attempted — proven by the signature-verification failure that only
+        // happens after we've fetched manifest+sigstore from URLs https://m / https://s.
+        // Without the fallback wiring, we'd see the generic missing-latest message.
+        Assert.NotEqual(UpdateChecker.FriendlyMissingLatestMessage, result.FailureReason);
+        Assert.False(result.HasUpdate);
+        Assert.Contains("簽章", result.FailureReason ?? "");
+    }
+
+    [Fact]
+    public async Task UpdateChecker_AllRecentLackManifest_ReturnsFriendlyMessage()
+    {
+        // Fix 3 worst case: /releases/latest AND every entry in the recent scan are
+        // missing the manifest.json / sigstore pair. The checker should surface the
+        // friendly Chinese message rather than throwing or returning the raw 404.
+        var noManifestA = new GitHubReleaseDto
+        {
+            TagName = "v1.0.0", Draft = false, Prerelease = false,
+            Assets = new() { new GitHubAssetDto { Name = "Source code (zip)", BrowserDownloadUrl = "x" } }
+        };
+        var noManifestB = new GitHubReleaseDto
+        {
+            TagName = "v0.9.0", Draft = false, Prerelease = false,
+            Assets = new() { new GitHubAssetDto { Name = "README.md", BrowserDownloadUrl = "x" } }
+        };
+        var http = new FakeHttp
+        {
+            OnGetRelease = () => Task.FromResult<GitHubReleaseDto?>(noManifestA),
+            OnGetRecent = () => Task.FromResult<IReadOnlyList<GitHubReleaseDto>>(new List<GitHubReleaseDto>
+            {
+                noManifestA, noManifestB
+            })
+        };
+        var checker = new UpdateChecker(http, DummyOpts, "o", "r");
+        var result = await checker.CheckAsync(new InstalledVersions("1.0.0", "2026.01.01", "7.1"), CancellationToken.None);
+        Assert.False(result.HasUpdate);
+        Assert.Equal(UpdateChecker.FriendlyMissingLatestMessage, result.FailureReason);
+    }
+
+    [Fact]
     public async Task Check_SigstoreFailure_ReturnsFailureReason()
     {
         var manifest = new UpdateManifest
