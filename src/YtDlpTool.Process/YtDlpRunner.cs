@@ -104,6 +104,7 @@ public sealed class YtDlpRunner
         });
         argList.AddRange(BuildSubtitleArgs(request));
         argList.AddRange(BuildClipArgs(request));
+        argList.AddRange(BuildFfmpegLocationArgs());
         if (request.EmbedThumbnail) argList.Add("--embed-thumbnail");
         if (request.ForceOverwrite) argList.Add("--force-overwrites");
         argList.Add("--");
@@ -151,12 +152,34 @@ public sealed class YtDlpRunner
         yield return "--embed-subs";
     }
 
-    private static IEnumerable<string> BuildClipArgs(DownloadRequest r)
+    // Internal-visible so tests in YtDlpTool.Process.Tests can assert the arg list
+    // shape for both video and audio clip modes (Fix 9).
+    internal static IEnumerable<string> BuildClipArgs(DownloadRequest r)
     {
         if (r.ClipRange is null) yield break;
         yield return "--download-sections";
         yield return r.ClipRange.ToYtDlpFormat();
-        yield return "--force-keyframes-at-cuts";
+        // --force-keyframes-at-cuts only applies to video tracks — it triggers a re-encode
+        // around the cut points to honour the precise timestamps. For audio-only modes
+        // yt-dlp prints a misleading warning and the flag has no effect; omit it cleanly.
+        if (r.Mode != DownloadMode.AudioOnly)
+            yield return "--force-keyframes-at-cuts";
+    }
+
+    /// <summary>
+    /// Tell yt-dlp explicitly where to find ffmpeg.exe. We can't rely on the working
+    /// directory or PATH because the app runs from a single-file extracted location that
+    /// is NOT on PATH. Without this, clip extraction + audio re-mux can silently fail
+    /// with "ffmpeg not found" inside the user's clip output.
+    /// </summary>
+    private IEnumerable<string> BuildFfmpegLocationArgs()
+    {
+        var ffmpegPath = Path.Combine(Path.GetDirectoryName(_executable) ?? "", "ffmpeg.exe");
+        if (File.Exists(ffmpegPath))
+        {
+            yield return "--ffmpeg-location";
+            yield return ffmpegPath;
+        }
     }
 
     private static string BuildOutputTemplate(DownloadRequest r)
