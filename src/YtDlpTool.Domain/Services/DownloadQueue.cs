@@ -96,6 +96,8 @@ public sealed class DownloadQueue : IDisposable
     {
         _logger?.Info("download.queued", new Dictionary<string, string>
         {
+            ["job_hash"] = JobHash(job),
+            ["url_hash"] = AppLogger.HashSuffix(job.Url),
             ["mode"] = job.Mode.ToString(),
             ["format"] = job.ChosenFormat.Height is { } h
                 ? h.ToString() + "p"
@@ -107,6 +109,15 @@ public sealed class DownloadQueue : IDisposable
         _pending.Enqueue(job);
         _ = TryStartNextAsync();
     }
+
+    /// <summary>
+    /// Per-job hash derived from the job's Guid (first 8 hex chars). Stable for the
+    /// life of the job and unique even when the same URL is enqueued repeatedly,
+    /// which makes log correlation across download.queued / started / progress /
+    /// completed / failed straightforward. Cross-job correlation by URL still uses
+    /// AppLogger.HashSuffix(url) in a separate url_hash field.
+    /// </summary>
+    private static string JobHash(DownloadJob job) => job.Id.ToString("N").Substring(0, 8);
 
     public bool Cancel(Guid jobId)
     {
@@ -127,7 +138,8 @@ public sealed class DownloadQueue : IDisposable
             removed.MarkCancelled();
             _logger?.Info("download.cancelled", new Dictionary<string, string>
             {
-                ["job_hash"] = AppLogger.HashSuffix(removed.Url)
+                ["job_hash"] = JobHash(removed),
+                ["url_hash"] = AppLogger.HashSuffix(removed.Url)
             });
             _onEvent(new JobCancelledEvent(removed));
             return true;
@@ -150,17 +162,25 @@ public sealed class DownloadQueue : IDisposable
 
     private async Task RunJobAsync(DownloadJob job, CancellationTokenSource cts)
     {
-        var jobHash = AppLogger.HashSuffix(job.Url);
+        var jobHash = JobHash(job);
+        var urlHash = AppLogger.HashSuffix(job.Url);
         var startedAt = DateTime.UtcNow;
         // Stuck-download watchdog: track the wall-clock time of the last progress report
         // and a flag the watchdog flips when it's the one who cancelled the job.
         long lastProgressTicks = DateTime.UtcNow.Ticks;
         var stuckCancelled = 0; // 0 = not stuck; 1 = watchdog tripped
+        // Fix E: gate all terminal event emissions so a watchdog-trip racing with a
+        // real executor failure doesn't produce two JobFailedEvents in a row.
+        var terminalEmitted = 0;
         using var watchdogStop = new CancellationTokenSource();
         try
         {
             job.MarkDownloading();
-            _logger?.Info("download.started", new Dictionary<string, string> { ["job_hash"] = jobHash });
+            _logger?.Info("download.started", new Dictionary<string, string>
+            {
+                ["job_hash"] = jobHash,
+                ["url_hash"] = urlHash
+            });
             _onEvent(new JobStartedEvent(job));
 
             var progress = new Progress<DownloadProgressSnapshot>(snap =>
@@ -188,6 +208,7 @@ public sealed class DownloadQueue : IDisposable
                             _logger?.Warn("download.stuck", new Dictionary<string, string>
                             {
                                 ["job_hash"] = jobHash,
+                                ["url_hash"] = urlHash,
                                 ["timeout_s"] = ((int)_noProgressTimeout.TotalSeconds).ToString()
                             });
                             try { cts.Cancel(); } catch { }
@@ -230,8 +251,11 @@ public sealed class DownloadQueue : IDisposable
                 var attempts = _retryCounts.AddOrUpdate(job.Id, 1, (_, n) => n + 1);
                 if (attempts <= _max429Retries && !cts.IsCancellationRequested)
                 {
-                    _logger?.Info("download.rate_limited",
-                        new Dictionary<string, string> { ["job_hash"] = jobHash });
+                    _logger?.Info("download.rate_limited", new Dictionary<string, string>
+                    {
+                        ["job_hash"] = jobHash,
+                        ["url_hash"] = urlHash
+                    });
                     // Re-emit a "rate-limited, retrying" event so UI can show waiting state.
                     _onEvent(new JobProgressEvent(job,
                         new DownloadProgressSnapshot(job.Progress, null, _rateLimitRetryDelay)));
@@ -250,41 +274,77 @@ public sealed class DownloadQueue : IDisposable
                             result = new DownloadExecutionResult(false, null, null, WasCancelled: true);
                         }
                     }
+
+                    // Re-check the stuck flag after the retry: the watchdog may have
+                    // fired during the second executor call. Without this re-check the
+                    // job emits as a generic cancellation instead of E-STUCK01.
+                    if (result.WasCancelled && Interlocked.CompareExchange(ref stuckCancelled, 0, 0) == 1)
+                    {
+                        result = new DownloadExecutionResult(
+                            false,
+                            null,
+                            new MappedError(ErrorCategory.NetworkError,
+                                "下載卡住，請選擇其他畫質或音質重新下載",
+                                "E-STUCK01",
+                                true),
+                            WasCancelled: false);
+                    }
                 }
             }
 
+            // Stop the watchdog BEFORE emitting any terminal event. Without this, a
+            // late watchdog tick can race ahead and produce a second cancel/failure
+            // event after the executor has already returned a real result. The
+            // terminalEmitted guard below is the belt-and-braces against that race.
+            try { watchdogStop.Cancel(); } catch { }
+
             if (result.WasCancelled)
             {
-                job.MarkCancelled();
-                _logger?.Info("download.cancelled", new Dictionary<string, string> { ["job_hash"] = jobHash });
-                _onEvent(new JobCancelledEvent(job));
+                if (Interlocked.Exchange(ref terminalEmitted, 1) == 0)
+                {
+                    job.MarkCancelled();
+                    _logger?.Info("download.cancelled", new Dictionary<string, string>
+                    {
+                        ["job_hash"] = jobHash,
+                        ["url_hash"] = urlHash
+                    });
+                    _onEvent(new JobCancelledEvent(job));
+                }
             }
             else if (result.IsSuccess && result.OutputFilePath is not null)
             {
-                job.MarkCompleted(result.OutputFilePath);
-                var elapsed = (int)(DateTime.UtcNow - startedAt).TotalMilliseconds;
-                _logger?.Info("download.completed", new Dictionary<string, string>
+                if (Interlocked.Exchange(ref terminalEmitted, 1) == 0)
                 {
-                    ["job_hash"] = jobHash,
-                    ["elapsed_ms"] = elapsed.ToString()
-                });
-                _onEvent(new JobCompletedEvent(job, result.OutputFilePath));
+                    job.MarkCompleted(result.OutputFilePath);
+                    var elapsed = (int)(DateTime.UtcNow - startedAt).TotalMilliseconds;
+                    _logger?.Info("download.completed", new Dictionary<string, string>
+                    {
+                        ["job_hash"] = jobHash,
+                        ["url_hash"] = urlHash,
+                        ["elapsed_ms"] = elapsed.ToString()
+                    });
+                    _onEvent(new JobCompletedEvent(job, result.OutputFilePath));
+                }
             }
             else
             {
-                var err = result.Error ?? new MappedError(ErrorCategory.UnknownError, "下載失敗", "E-UNKNOWN", false);
-                job.MarkFailed(err.UserMessage, err.ErrorCode);
-                // Log the real failure detail (truncated raw stderr) alongside the code so
-                // bug reports actually contain the yt-dlp diagnosis instead of just
-                // the bucket name. This is a local-only log; we don't strip URLs.
-                _logger?.Warn("download.failed", new Dictionary<string, string>
+                if (Interlocked.Exchange(ref terminalEmitted, 1) == 0)
                 {
-                    ["job_hash"] = jobHash,
-                    ["error_code"] = err.ErrorCode,
-                    ["category"] = err.Category.ToString(),
-                    ["details"] = err.RawDetails ?? ""
-                });
-                _onEvent(new JobFailedEvent(job, err));
+                    var err = result.Error ?? new MappedError(ErrorCategory.UnknownError, "下載失敗", "E-UNKNOWN", false);
+                    job.MarkFailed(err.UserMessage, err.ErrorCode);
+                    // Log the real failure detail (truncated raw stderr) alongside the code so
+                    // bug reports actually contain the yt-dlp diagnosis instead of just
+                    // the bucket name. This is a local-only log; we don't strip URLs.
+                    _logger?.Warn("download.failed", new Dictionary<string, string>
+                    {
+                        ["job_hash"] = jobHash,
+                        ["url_hash"] = urlHash,
+                        ["error_code"] = err.ErrorCode,
+                        ["category"] = err.Category.ToString(),
+                        ["details"] = err.RawDetails ?? ""
+                    });
+                    _onEvent(new JobFailedEvent(job, err));
+                }
             }
         }
         finally

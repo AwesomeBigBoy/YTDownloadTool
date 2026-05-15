@@ -207,6 +207,69 @@ public class DownloadQueueTests
         }
     }
 
+    private sealed class StuckDuringRateLimitFakeExecutor : IDownloadExecutor
+    {
+        // First call returns RateLimited. Second call (the retry) hangs forever
+        // until cancelled — simulating the watchdog firing during the retry.
+        public int Calls;
+        public async Task<DownloadExecutionResult> ExecuteAsync(
+            DownloadJob job, IProgress<DownloadProgressSnapshot> progress,
+            CancellationToken cancellationToken)
+        {
+            var n = Interlocked.Increment(ref Calls);
+            if (n == 1)
+            {
+                await Task.Yield();
+                return new DownloadExecutionResult(false, null,
+                    new MappedError(ErrorCategory.RateLimited, "rate", "E-RATE001", true),
+                    WasCancelled: false);
+            }
+            // Second call: report once then go silent so watchdog trips.
+            progress.Report(new DownloadProgressSnapshot(5, 1024, TimeSpan.FromSeconds(60)));
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return new DownloadExecutionResult(false, null, null, WasCancelled: true);
+            }
+            return new DownloadExecutionResult(false, null, null, WasCancelled: true);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadQueue_StuckDuringRateLimit_OnlyOneTerminalEvent()
+    {
+        // Fix E: a stuck watchdog firing during the rate-limit retry path used to
+        // double-emit (one cancel from the watchdog, one failure from the executor
+        // result). The terminalEmitted guard collapses those into a single event.
+        var fake = new StuckDuringRateLimitFakeExecutor();
+        var events = new List<QueueEvent>();
+        using var queue = new DownloadQueue(
+            fake,
+            maxConcurrency: 1,
+            onEvent: e => { lock (events) events.Add(e); },
+            logger: null,
+            max429Retries: 1,
+            rateLimitRetryDelay: TimeSpan.FromMilliseconds(10),
+            noProgressTimeout: TimeSpan.FromMilliseconds(50),
+            watchdogInterval: TimeSpan.FromMilliseconds(10));
+
+        queue.Enqueue(MakeJob());
+        await WaitFor(() => { lock (events) return events.Any(e => e is JobFailedEvent); }, timeoutMs: 4000);
+
+        // Give the queue a beat to see if any second terminal event escapes.
+        await Task.Delay(200);
+
+        lock (events)
+        {
+            var terminals = events.Count(e => e is JobFailedEvent || e is JobCancelledEvent || e is JobCompletedEvent);
+            Assert.Equal(1, terminals);
+            Assert.Single(events.OfType<JobFailedEvent>());
+        }
+    }
+
     private static async Task WaitFor(Func<bool> cond, int timeoutMs = 2000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
