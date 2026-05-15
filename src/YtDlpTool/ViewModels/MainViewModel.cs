@@ -18,10 +18,20 @@ public partial class MainViewModel : ObservableObject
         host.QueueEventRaised += OnQueueEvent;
     }
 
-    [ObservableProperty] private string _saveDirectory = "";
-    [ObservableProperty] private VideoMetadata? _currentMetadata;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanAddDownload))]
+    private string _saveDirectory = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanAddDownload))]
+    private VideoMetadata? _currentMetadata;
+
     [ObservableProperty] private DownloadMode _selectedMode = DownloadMode.AudioAndVideo;
-    [ObservableProperty] private VideoFormat? _selectedFormat;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanAddDownload))]
+    private VideoFormat? _selectedFormat;
+
     [ObservableProperty] private TimeRange? _clipRange;
     [ObservableProperty] private bool _isParsing;
     [ObservableProperty] private string? _parseError;
@@ -49,7 +59,22 @@ public partial class MainViewModel : ObservableObject
             clipRange: ClipRange,
             saveDirectory: SaveDirectory);
         _host.Queue.Enqueue(job);
-        CurrentMetadata = null;
+        // Intentionally do NOT clear URL/Format/Clip/Subs here — the user has just spent
+        // effort dialling these in and frequently wants to enqueue the same video again
+        // with a tweaked option (different quality, different clip). The reset happens
+        // automatically in OnCurrentMetadataChanged when the URL resolves to a different
+        // VideoId. See Fix 5 + Fix 6.
+    }
+
+    /// <summary>
+    /// Reset video-specific options when the URL resolves to a different video. We compare
+    /// VideoIds rather than raw URLs so a youtu.be link and the youtube.com equivalent
+    /// don't trigger a spurious reset. Transitions null→meta (first paste) and meta→null
+    /// (clear/error) leave the user's last-selected options alone.
+    /// </summary>
+    partial void OnCurrentMetadataChanged(VideoMetadata? oldValue, VideoMetadata? newValue)
+    {
+        if (!MetadataChangePolicy.ShouldResetOptions(oldValue, newValue)) return;
         SelectedFormat = null;
         ClipRange = null;
         SelectedSubtitleLanguages.Clear();
