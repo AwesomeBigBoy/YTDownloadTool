@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="YtDlpTool" />
+
+  <!--
+    v1.1.30: declare SYSTEM DPI awareness instead of letting WPF default to
+    PerMonitorV2. Reproduction (managed Windows 11 machine) showed a 1px
+    pure-white line at every card edge. The line appeared only on that
+    machine, only on this app, and only when WPF runs with its default
+    PerMonitorV2 DPI awareness. Setting Windows 8 compatibility mode on
+    the .exe (which forces system-DPI back-compat) eliminated the line —
+    isolating PerMonitorV2 as the trigger.
+
+    With "system" DPI awareness, Windows scales the whole window output
+    bitmap based on the primary monitor's DPI rather than letting WPF
+    re-layout per monitor. Down-side: on multi-monitor setups with
+    different DPIs, the secondary monitor may show a slightly blurry
+    bitmap-scaled UI. Up-side: no more white-edge artifact in the
+    affected environment.
+
+    Trade-off accepted because:
+      - the visual bug is reproducible on real user hardware
+      - multi-monitor mixed-DPI is a minority case
+      - users who want sharper rendering on a secondary monitor can
+        right-click YtDlpTool.exe → Properties → Compatibility → Change
+        high DPI settings → Override → System (Enhanced) for the
+        per-monitor bitmap-quality improvement
+  -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">system</dpiAwareness>
+    </windowsSettings>
+  </application>
+
+  <!-- Tell the OS we support Windows 10/11 so it doesn't fall back to
+       Win8-era shims (which would defeat the point of the explicit DPI
+       declaration above). -->
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10/11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
+    </application>
+  </compatibility>
+</assembly>
