@@ -28,6 +28,14 @@ public static class ProcessSandbox
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // v1.1.18: redirect stdin so we can close it immediately after Start.
+            // Without redirection, the child inherits the parent's stdin handle.
+            // For a GUI parent process with no attached console, that handle is
+            // invalid, and a PyInstaller-frozen yt-dlp.exe child can hang on the
+            // first Python stdin probe (terminal detection, isatty check, etc.)
+            // producing the "30s timeout, no stdout, no stderr" failure mode
+            // observed on managed hosts.
+            RedirectStandardInput = true,
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
@@ -102,6 +110,10 @@ public static class ProcessSandbox
             return new ProcessExitInfo(-1, $"Process.Start failed: {ex.GetType().Name}: {ex.Message}", false, false, false, false);
         }
 
+        // v1.1.18: close child's stdin immediately so it gets EOF on first read.
+        // Pairs with RedirectStandardInput=true above — see comment there.
+        try { process.StandardInput.Close(); } catch { }
+
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
@@ -145,60 +157,39 @@ public static class ProcessSandbox
         try { await Task.Delay(KillGrace, CancellationToken.None).ConfigureAwait(false); } catch { }
     }
 
-    // Env vars we DELIBERATELY pass through from the parent process. Stripped initially
-    // out of paranoia (防 PATH 劫持 per spec §5.2) but the strip was too aggressive:
-    // managed environments set HTTP_PROXY/HTTPS_PROXY via GPO and yt-dlp/Python only
-    // sees the proxy via these env vars. Bare yt-dlp CLI on those machines works because
-    // it inherits the full environment; we were blocking ourselves.
-    //
-    // PATH itself stays sandboxed (rewritten to <bin>;<system32>) — we still don't
-    // inherit the user's PATH because that's the actual hijack vector.
-    private static readonly string[] PassThroughEnvVars =
-    {
-        // Proxy configuration — the main reason this list exists.
-        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
-        "http_proxy", "https_proxy", "no_proxy",
-        "ALL_PROXY", "all_proxy",
-
-        // SSL / CA bundle — managed networks with SSL inspection point Python urllib
-        // at an site-installed CA bundle via these vars.
-        "SSL_CERT_FILE", "SSL_CERT_DIR",
-        "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
-
-        // User-profile paths — yt-dlp's cookie handling and some config paths read these.
-        "USERPROFILE", "USERNAME", "USERDOMAIN",
-        "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH",
-    };
-
     private static void ConfigureSandboxedEnvironment(
         ProcessStartInfo info,
         string exePath,
         IReadOnlyDictionary<string, string>? extraEnv)
     {
-        info.EnvironmentVariables.Clear();
+        // v1.1.18: do NOT clear the child's environment.
+        //
+        // Prior versions cleared it and rebuilt from a small whitelist
+        // (proxy, SSL, USERPROFILE, APPDATA, ...). The intent was paranoia
+        // hardening per spec §5.2, but the production failure mode in
+        // managed environments turned out to be exactly this: yt-dlp's
+        // PyInstaller-frozen Python depends on environment vars we did not
+        // anticipate (likely PROCESSOR_*, COMSPEC, SESSIONNAME or similar),
+        // and missing them made yt-dlp hang during startup before producing
+        // any stdout/stderr. The same bare yt-dlp.exe invocation from a
+        // plain CMD — inheriting full user env — returned JSON immediately.
+        //
+        // We keep two security-relevant overrides:
+        //   1. PATH is replaced with bin + System32, since user-PATH hijack
+        //      is the actual attack vector we care about (spec §5.2).
+        //   2. PYTHON encoding hints make yt-dlp output deterministic UTF-8
+        //      regardless of the user's locale.
+        // ExtraEnv (e.g., SSL_CERT_FILE injection from YtDlpRunner) is then
+        // applied on top so callers can still force specific values.
+
         var binDir = Path.GetDirectoryName(exePath) ?? "";
         var systemDir = Environment.GetFolderPath(Environment.SpecialFolder.System);
         var systemRoot = Environment.GetEnvironmentVariable("SystemRoot") ?? @"C:\Windows";
-        var tempDir = Path.GetTempPath();
-        info.EnvironmentVariables["SystemRoot"] = systemRoot;
-        info.EnvironmentVariables["Temp"] = tempDir;
-        info.EnvironmentVariables["TMP"] = tempDir;
+
         info.EnvironmentVariables["Path"] = $"{binDir};{systemDir};{Path.Combine(systemRoot, "System32")}";
-        info.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8"; // yt-dlp respects this
+        info.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
         info.EnvironmentVariables["PYTHONUTF8"] = "1";
 
-        foreach (var name in PassThroughEnvVars)
-        {
-            var value = Environment.GetEnvironmentVariable(name);
-            if (!string.IsNullOrEmpty(value))
-                info.EnvironmentVariables[name] = value;
-        }
-
-        // v1.1.17: explicit injection wins over the pass-through whitelist.
-        // Callers that need a specific env var to reach the child (e.g.,
-        // SSL_CERT_FILE pointing at the bundled CA file) use this path so
-        // the value cannot be silently dropped by an unreliable global-env
-        // round-trip.
         if (extraEnv is not null)
         {
             foreach (var kv in extraEnv)
