@@ -200,6 +200,69 @@ public class UpdateCheckerTests
     }
 
     [Fact]
+    public async Task TerminalFailure_NoOtherReleases_BubblesUpAsFailureReason()
+    {
+        // Fix 2 (v1.1.6): when /releases/latest yields a release whose sigstore bundle
+        // fails to verify AND no other recent release evaluates cleanly, the checker
+        // must surface the specific 簽章驗證失敗 message rather than masking it with the
+        // generic missing-latest friendly text.
+        var manifest = new UpdateManifest
+        {
+            AppVersion = "2.0.0",
+            Files = new() { new ManifestFileEntry { Component = UpdateComponent.App, Version = "2.0.0", Name = "YtDlpTool.exe" } }
+        };
+        var manifestJson = JsonSerializer.Serialize(manifest, AppJsonContext.Default.UpdateManifest);
+        var primary = new GitHubReleaseDto
+        {
+            TagName = "v2.0.0",
+            Draft = false,
+            Prerelease = false,
+            Assets = new()
+            {
+                new GitHubAssetDto { Name = "manifest.json", BrowserDownloadUrl = "https://m" },
+                new GitHubAssetDto { Name = "manifest.json.sigstore", BrowserDownloadUrl = "https://s" }
+            }
+        };
+        var http = new FakeHttp
+        {
+            OnGetRelease = () => Task.FromResult<GitHubReleaseDto?>(primary),
+            OnGetRecent = () => Task.FromResult<IReadOnlyList<GitHubReleaseDto>>(new List<GitHubReleaseDto> { primary }),
+            Strings = { ["https://m"] = manifestJson, ["https://s"] = "{invalid sigstore bundle}" }
+        };
+        var checker = new UpdateChecker(http, DummyOpts, "o", "r");
+        var result = await checker.CheckAsync(new InstalledVersions("1.0.0", "2026.01.01", "7.1"), CancellationToken.None);
+
+        Assert.False(result.HasUpdate);
+        Assert.NotEqual(UpdateChecker.FriendlyMissingLatestMessage, result.FailureReason);
+        Assert.Contains("簽章", result.FailureReason ?? "");
+    }
+
+    [Fact]
+    public async Task AllReleasesNoUsablePair_FallsBackToFriendlyMessage()
+    {
+        // Companion to the above: when no release in the scan has manifest+sigstore at
+        // all, lastTerminalFailure stays null and the friendly text must win — proves
+        // the null-coalescing branch in the checker's tail return statement still fires.
+        var bareRelease = new GitHubReleaseDto
+        {
+            TagName = "v0.5.0",
+            Draft = false,
+            Prerelease = false,
+            Assets = new() { new GitHubAssetDto { Name = "Source code (zip)", BrowserDownloadUrl = "x" } }
+        };
+        var http = new FakeHttp
+        {
+            OnGetRelease = () => Task.FromResult<GitHubReleaseDto?>(bareRelease),
+            OnGetRecent = () => Task.FromResult<IReadOnlyList<GitHubReleaseDto>>(new List<GitHubReleaseDto> { bareRelease })
+        };
+        var checker = new UpdateChecker(http, DummyOpts, "o", "r");
+        var result = await checker.CheckAsync(new InstalledVersions("1.0.0", "2026.01.01", "7.1"), CancellationToken.None);
+
+        Assert.False(result.HasUpdate);
+        Assert.Equal(UpdateChecker.FriendlyMissingLatestMessage, result.FailureReason);
+    }
+
+    [Fact]
     public async Task Check_SigstoreFailure_ReturnsFailureReason()
     {
         var manifest = new UpdateManifest

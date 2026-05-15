@@ -133,6 +133,16 @@
                                              Minimum="0" Maximum="100"
                                              Visibility="Collapsed"
                                              IsIndeterminate="False" />
+                                <!-- Fix 2 (v1.1.6): surfaced when the check fails / can't find latest.
+                                     Opens today's log file so the user can copy the update.check.*
+                                     events for an IT bug report. -->
+                                <Button x:Name="OpenDiagnosticsLogLink"
+                                        Content="顯示診斷詳情"
+                                        Style="{StaticResource LinkButton}"
+                                        HorizontalAlignment="Left"
+                                        Margin="0,4,0,0"
+                                        Visibility="Collapsed"
+                                        Click="OnOpenLatestLogClicked" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -208,6 +218,13 @@
                                          Minimum="0" Maximum="100"
                                          Visibility="Collapsed"
                                          IsIndeterminate="False" />
+                            <Button x:Name="OpenDiagnosticsLogLinkAdvanced"
+                                    Content="顯示診斷詳情"
+                                    Style="{StaticResource LinkButton}"
+                                    HorizontalAlignment="Left"
+                                    Margin="0,4,0,0"
+                                    Visibility="Collapsed"
+                                    Click="OnOpenLatestLogClicked" />
                         </StackPanel>
                     </Border>
                 </StackPanel>
