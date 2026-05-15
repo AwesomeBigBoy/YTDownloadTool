@@ -108,9 +108,13 @@
         </Setter>
     </Style>
 
-    <!-- Secondary button: subtle, with hover/press feedback for small actions like 清除, 瀏覽…, 取消 -->
+    <!-- Secondary button: subtle, with hover/press feedback for small actions like 清除, 瀏覽…, 取消.
+         v1.1.31: switched from hardcoded #0D000000 (5% black) to theme-aware
+         Brush.ButtonSurface. The 5% black was invisible on dark theme card
+         backgrounds (5% black over dark navy = imperceptibly darker dark navy).
+         Theme brushes give a visible "chip" on both themes. -->
     <Style x:Key="SecondaryButton" TargetType="Button">
-        <Setter Property="Background" Value="#0D000000" />
+        <Setter Property="Background" Value="{DynamicResource Brush.ButtonSurface}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
         <Setter Property="FontFamily" Value="{StaticResource Font.Default}" />
         <Setter Property="FontSize" Value="13" />
@@ -130,10 +134,10 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bg" Property="Background" Value="#1A000000" />
+                            <Setter TargetName="bg" Property="Background" Value="{DynamicResource Brush.ButtonSurfaceHover}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="bg" Property="Background" Value="#26000000" />
+                            <Setter TargetName="bg" Property="Background" Value="{DynamicResource Brush.ButtonSurfacePressed}" />
                             <Trigger.EnterActions>
                                 <BeginStoryboard>
                                     <Storyboard>

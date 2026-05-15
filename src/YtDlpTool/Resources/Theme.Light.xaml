@@ -19,7 +19,9 @@
     <!-- v1.1.29: subtle dark tint for inactive segment buttons / dropdowns so
          they don't disappear into the card body. Calibrated for both themes:
          8% over a light card here, 20% over a dark card in the Dark variant. -->
-    <Color x:Key="Color.ButtonSurface">#14000000</Color>  <!-- 8% black -->
+    <Color x:Key="Color.ButtonSurface">#14000000</Color>          <!-- 8% black -->
+    <Color x:Key="Color.ButtonSurfaceHover">#24000000</Color>     <!-- 14% black -->
+    <Color x:Key="Color.ButtonSurfacePressed">#33000000</Color>   <!-- 20% black -->
     <Color x:Key="Color.AuroraA">#FF5A8F</Color>          <!-- vivid hot pink -->
     <Color x:Key="Color.AuroraB">#FFA940</Color>          <!-- vivid orange-peach -->
     <Color x:Key="Color.AuroraC">#40C8FF</Color>          <!-- vivid sky blue -->
@@ -37,5 +39,7 @@
     <SolidColorBrush x:Key="Brush.GlassBorder" Color="{StaticResource Color.GlassBorder}" />
     <SolidColorBrush x:Key="Brush.GlassFill"   Color="{StaticResource Color.GlassFill}" />
     <SolidColorBrush x:Key="Brush.ButtonSurface" Color="{StaticResource Color.ButtonSurface}" />
+    <SolidColorBrush x:Key="Brush.ButtonSurfaceHover" Color="{StaticResource Color.ButtonSurfaceHover}" />
+    <SolidColorBrush x:Key="Brush.ButtonSurfacePressed" Color="{StaticResource Color.ButtonSurfacePressed}" />
 
 </ResourceDictionary>

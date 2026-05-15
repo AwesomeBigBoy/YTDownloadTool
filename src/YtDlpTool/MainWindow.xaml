@@ -39,12 +39,18 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- v1.1.31: logo gradient pinned to vivid pink/orange/blue
+                         regardless of theme. Previously bound to Aurora A/B/C,
+                         which in dark theme are deep navy/indigo/teal — the
+                         logo blended into the dark gradient header background
+                         and disappeared. Pinned colours pop on both light's
+                         vivid gradient and dark's deep navy. -->
                     <Ellipse Width="20" Height="20" Margin="0,0,8,0">
                         <Ellipse.Fill>
                             <LinearGradientBrush>
-                                <GradientStop Color="{DynamicResource Color.AuroraA}" Offset="0" />
-                                <GradientStop Color="{DynamicResource Color.AuroraB}" Offset="0.5" />
-                                <GradientStop Color="{DynamicResource Color.AuroraC}" Offset="1" />
+                                <GradientStop Color="#FF5A8F" Offset="0" />
+                                <GradientStop Color="#FFA940" Offset="0.5" />
+                                <GradientStop Color="#40C8FF" Offset="1" />
                             </LinearGradientBrush>
                         </Ellipse.Fill>
                     </Ellipse>

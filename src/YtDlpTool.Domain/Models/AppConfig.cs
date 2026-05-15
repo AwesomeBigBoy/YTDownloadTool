@@ -34,9 +34,15 @@ public sealed class AppConfig
     {
         return new AppConfig
         {
+            // v1.1.31: default to <Desktop>\YtVideo per user feedback. New installs
+            // get this. Existing installs keep whatever's in their config.json —
+            // AppHost only applies the default when DefaultSaveDirectory is blank.
+            // The folder itself is created just-in-time by YtDlpDownloadExecutor
+            // before the first download, so we don't litter empty folders on the
+            // desktop of users who never download anything.
             DefaultSaveDirectory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "Downloads", "YtDlpTool")
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                "YtVideo")
         };
     }
 }
