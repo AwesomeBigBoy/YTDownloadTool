@@ -90,12 +90,14 @@ public class ProcessSandboxTests
     [Fact]
     public async Task Run_OverridesPathAndPythonEncoding()
     {
-        // v1.1.18: ProcessSandbox no longer strips the parent's environment.
-        // The remaining contract is narrower — only two categories matter:
-        //   1. PATH is always overridden to bin+System32 (hijack defense per §5.2).
+        // v1.1.27: env is strip-and-whitelist again (see ProcessSandbox.PassThroughEnvVars).
+        // What we assert here is the narrow contract callers must be able to rely on:
+        //   1. PATH is always rewritten to bin+System32 (hijack defense per spec §5.2).
         //   2. PYTHON encoding hints are always set so yt-dlp output is deterministic.
-        // Other parent env vars pass through unchanged, which the previous "leak
-        // forbidden" assertion contradicted. See the v1.1.18 changelog for context.
+        // We do not (anymore) assert "no parent env leaks" — that constraint was the
+        // v1.1.16 spec but turned out to be too aggressive in production (PyInstaller's
+        // Python init wanted vars our whitelist didn't include); the whitelist now
+        // covers the keys yt-dlp/PyInstaller actually need.
         var lines = new List<string>();
         var args = new ProcessStartArguments(
             ExecutablePath: CmdPath,
