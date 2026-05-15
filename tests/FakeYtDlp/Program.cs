@@ -18,34 +18,55 @@ if (argList.Contains("--simulate-error"))
     return 1;
 }
 
+// Shared metadata payload used by both the legacy --dump-single-json path
+// (stdout) and the v1.1.23 --write-info-json path (file).
+object BuildMetadata() => new
+{
+    id = "FAKE0001234",
+    title = "Fake Test Video",
+    uploader = "Fake Channel",
+    duration = 300,
+    thumbnail = "https://i.ytimg.com/vi/FAKE0001234/hqdefault.jpg",
+    formats = new object[]
+    {
+        new { format_id = "140", ext = "m4a", acodec = "mp4a", vcodec = "none", abr = 128, filesize = 4_800_000 },
+        new { format_id = "251", ext = "webm", acodec = "opus", vcodec = "none", abr = 160, filesize = 6_000_000 },
+        new { format_id = "299", ext = "mp4", vcodec = "avc1", acodec = "none", height = 1080, filesize = 120_000_000 },
+        new { format_id = "298", ext = "mp4", vcodec = "avc1", acodec = "none", height = 720,  filesize = 80_000_000 },
+        new { format_id = "135", ext = "mp4", vcodec = "avc1", acodec = "none", height = 480,  filesize = 40_000_000 }
+    },
+    subtitles = new Dictionary<string, object[]>
+    {
+        ["en"] = new object[] { new { ext = "vtt", url = "https://example/en.vtt" } },
+        ["zh-TW"] = new object[] { new { ext = "vtt", url = "https://example/zh-TW.vtt" } }
+    },
+    automatic_captions = new Dictionary<string, object[]>
+    {
+        ["ja"] = new object[] { new { ext = "vtt", url = "https://example/auto.ja.vtt" } }
+    }
+};
+
 if (argList.Contains("--dump-single-json"))
 {
-    var meta = new
-    {
-        id = "FAKE0001234",
-        title = "Fake Test Video",
-        uploader = "Fake Channel",
-        duration = 300,
-        thumbnail = "https://i.ytimg.com/vi/FAKE0001234/hqdefault.jpg",
-        formats = new object[]
-        {
-            new { format_id = "140", ext = "m4a", acodec = "mp4a", vcodec = "none", abr = 128, filesize = 4_800_000 },
-            new { format_id = "251", ext = "webm", acodec = "opus", vcodec = "none", abr = 160, filesize = 6_000_000 },
-            new { format_id = "299", ext = "mp4", vcodec = "avc1", acodec = "none", height = 1080, filesize = 120_000_000 },
-            new { format_id = "298", ext = "mp4", vcodec = "avc1", acodec = "none", height = 720,  filesize = 80_000_000 },
-            new { format_id = "135", ext = "mp4", vcodec = "avc1", acodec = "none", height = 480,  filesize = 40_000_000 }
-        },
-        subtitles = new Dictionary<string, object[]>
-        {
-            ["en"] = new object[] { new { ext = "vtt", url = "https://example/en.vtt" } },
-            ["zh-TW"] = new object[] { new { ext = "vtt", url = "https://example/zh-TW.vtt" } }
-        },
-        automatic_captions = new Dictionary<string, object[]>
-        {
-            ["ja"] = new object[] { new { ext = "vtt", url = "https://example/auto.ja.vtt" } }
-        }
-    };
-    Console.WriteLine(JsonSerializer.Serialize(meta));
+    Console.WriteLine(JsonSerializer.Serialize(BuildMetadata()));
+    return 0;
+}
+
+// v1.1.23 metadata path: --skip-download --write-info-json --output <template>.
+// yt-dlp writes the metadata to <template-with-id-substituted>.info.json.
+// The mode is distinguished from the subtitle path (which also uses
+// --skip-download) by the presence of --write-info-json without --write-subs.
+if (argList.Contains("--skip-download") && argList.Contains("--write-info-json") && !argList.Contains("--write-subs"))
+{
+    var metaOutIdx = argList.IndexOf("--output");
+    var metaTemplate = metaOutIdx >= 0 ? argList[metaOutIdx + 1] : "fake-info";
+    // Substitute %(id)s with the fake id. Real yt-dlp also strips trailing
+    // %(ext)s if present; our template doesn't have that here.
+    var resolved = metaTemplate.Replace("%(id)s", "FAKE0001234", StringComparison.OrdinalIgnoreCase);
+    var jsonPath = resolved + ".info.json";
+    var dir = Path.GetDirectoryName(jsonPath);
+    if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+    await File.WriteAllTextAsync(jsonPath, JsonSerializer.Serialize(BuildMetadata()));
     return 0;
 }
 

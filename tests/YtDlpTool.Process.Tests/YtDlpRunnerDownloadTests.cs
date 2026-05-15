@@ -7,16 +7,19 @@ namespace YtDlpTool.Process.Tests;
 public class YtDlpRunnerDownloadTests
 {
     [Fact]
-    public async Task Download_ReportsProgressAndCompletes()
+    public async Task Download_CompletesAndProducesFile()
     {
+        // v1.1.23: TTY mode means we don't capture stdout, so live progress
+        // reports (via the IProgress<ProgressReport> callback) are no longer
+        // emitted — the trade-off accepted to bypass endpoint security software's
+        // "redirected stdout = malware-like" block on managedhosts. What we still
+        // assert: process exits 0 and the final file lands at the path
+        // implied by SaveDirectory + SanitizedFileStem.
         var runner = new YtDlpRunner(FakeYtDlpLocator.Path());
         var temp = Path.Combine(Path.GetTempPath(), "ytdlp-dl-" + Guid.NewGuid());
         Directory.CreateDirectory(temp);
         try
         {
-            var progressValues = new List<double>();
-            var progress = new Progress<ProgressReport>(r => progressValues.Add(r.Percent));
-
             var format = new VideoFormat("299", 1080, "avc1", null, "mp4", 120_000_000, null);
             var request = new DownloadRequest(
                 Url: "https://www.youtube.com/watch?v=FAKE0001234",
@@ -27,13 +30,11 @@ public class YtDlpRunnerDownloadTests
                 SaveDirectory: temp,
                 SanitizedFileStem: "Fake_Test_Video");
 
-            var result = await runner.DownloadAsync(request, progress);
+            var result = await runner.DownloadAsync(request);
 
             Assert.True(result.IsSuccess, result.ErrorStderr);
             Assert.NotNull(result.OutputFilePath);
             Assert.True(File.Exists(result.OutputFilePath));
-            Assert.NotEmpty(progressValues);
-            Assert.Contains(100.0, progressValues);
         }
         finally { Directory.Delete(temp, recursive: true); }
     }
