@@ -26,6 +26,24 @@ public partial class AdvancedOptionsView : UserControl
     private void OnVmChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainViewModel.CurrentMetadata)) RebuildSubtitles();
+        else if (e.PropertyName == nameof(MainViewModel.ClipRange)) SyncClipCheckboxFromVm();
+    }
+
+    /// <summary>
+    /// Keeps the ClipEnabled checkbox in sync with the underlying ClipRange so the UI never
+    /// shows a checked box while the VM has cleared the range (which happens automatically
+    /// when the URL resolves to a different video — see MainViewModel.OnCurrentMetadataChanged).
+    /// </summary>
+    private void SyncClipCheckboxFromVm()
+    {
+        if (Vm is null) return;
+        if (Vm.ClipRange is null && ClipEnabled.IsChecked == true)
+        {
+            ClipEnabled.IsChecked = false;
+            ClipStart.IsEnabled = false;
+            ClipEnd.IsEnabled = false;
+            ClipError.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void RebuildSubtitles()

@@ -81,6 +81,7 @@
                             Style="{StaticResource PrimaryButton}"
                             Content="{StaticResource Button.AddDownload}"
                             Margin="0,0,0,16"
+                            IsEnabled="{Binding CanAddDownload}"
                             Click="OnAddDownloadClicked" />
                     <views:QueuePanelView />
                 </StackPanel>
