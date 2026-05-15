@@ -39,16 +39,20 @@
              gradient, and the DropShadowEffect below gives the glass-card depth
              cue. BorderBrush kept on the style for other styles (e.g. dividers)
              that share the same brush via DynamicResource. -->
-        <Setter Property="BorderThickness" Value="0" />
+        <!-- v1.1.28: BorderThickness back to 1 and DropShadowEffect restored.
+             v1.1.20 -> v1.1.27 tried multiple removals to address the user-
+             reported "white border" but each version looked progressively
+             worse without making the edge go away. User asked to revert to
+             v1.1.16 visuals (the white edge accepted as an acceptable cost
+             of the Aurora Glass aesthetic). -->
+        <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="14" />
         <Setter Property="Padding" Value="{StaticResource Space.5}" />
-        <!-- v1.1.25: DropShadowEffect removed. User reported a persistent
-             "white border" around cards even after BorderThickness was set
-             to 0 in v1.1.22. The 20px-blur + 2px-offset black shadow can
-             render as a visible halo at the top edge of each card on
-             certain GPUs / rendering modes, contributing to the perceived
-             border. Without the shadow the card sits flat on the gradient,
-             which loses the depth cue but removes the artefact. -->
+        <Setter Property="Effect">
+            <Setter.Value>
+                <DropShadowEffect Color="Black" Opacity="0.08" BlurRadius="20" ShadowDepth="2" />
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style x:Key="SegmentButtonStyle" TargetType="Button">
@@ -318,14 +322,45 @@
         </Setter>
     </Style>
 
-    <!-- Default ComboBox chrome (light tweak via setters only — keep WPF template) -->
+    <!-- Default ComboBox chrome -->
     <Style TargetType="ComboBox">
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Padding" Value="10,6" />
         <Setter Property="Height" Value="36" />
         <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FontFamily" Value="{StaticResource Font.Default}" />
+    </Style>
+
+    <!-- v1.1.28: default CheckBox / TextBox / Expander styles so dark theme actually
+         renders readable text. Previously these used WPF's built-in styles which
+         use SystemColors.ControlTextBrush — that doesn't track our DynamicResource
+         theme palette, so on the dark theme background the labels stayed dark and
+         became unreadable (user-reported, 2026-05-16). The setters here are
+         minimal — just font, foreground, family — so the WPF default templates
+         keep working for the structural bits we don't want to override. -->
+    <Style TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+        <Setter Property="FontFamily" Value="{StaticResource Font.Default}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style TargetType="TextBox">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+        <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="FontFamily" Value="{StaticResource Font.Default}" />
+        <Setter Property="Padding" Value="6,4" />
+        <Setter Property="CaretBrush" Value="{DynamicResource Brush.TextPrimary}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource Brush.Accent}" />
+    </Style>
+
+    <Style TargetType="Expander">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
         <Setter Property="FontFamily" Value="{StaticResource Font.Default}" />
     </Style>
 
