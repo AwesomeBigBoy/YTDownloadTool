@@ -121,7 +121,13 @@ public sealed class YtDlpRunner
             // this). 'android' and 'ios' clients return stream URLs that don't need JS
             // deobfuscation and work without a deno install. yt-dlp tries each client
             // until one yields usable formats — fixes the clip-stuck-at-Destination bug.
-            "--extractor-args", "youtube:player_client=android,ios,web",
+            // YouTube's PO Token (Proof-of-Origin) requirement now blocks the default
+            // android/ios/web HTTPS streams for many videos ("android client https
+            // formats require a GVS PO Token which was not provided"). tv_simply,
+            // mweb, and web_safari clients have looser requirements and usually
+            // return playable URLs without a token. yt-dlp tries each client in
+            // order until one yields downloadable formats.
+            "--extractor-args", "youtube:player_client=tv_simply,mweb,web_safari,android,ios,web",
             "--output",
             BuildOutputTemplate(request),
         });
