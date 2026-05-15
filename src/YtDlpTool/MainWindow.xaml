@@ -48,9 +48,14 @@
                             </LinearGradientBrush>
                         </Ellipse.Fill>
                     </Ellipse>
+                    <!-- v1.1.30: app name pinned to white. On both light (vivid
+                         sunrise gradient) and dark (deep navy gradient) themes
+                         white reads cleanly; the dark navy `Brush.TextPrimary`
+                         that lit theme uses elsewhere looks dingy against the
+                         saturated header gradient. -->
                     <TextBlock Text="{StaticResource App.Name}"
                                FontSize="16" FontWeight="SemiBold"
-                               Foreground="{DynamicResource Brush.TextPrimary}"
+                               Foreground="White"
                                VerticalAlignment="Center" />
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal">

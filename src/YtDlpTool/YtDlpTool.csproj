@@ -11,6 +11,10 @@
     <RootNamespace>YtDlpTool</RootNamespace>
     <AssemblyName>YtDlpTool</AssemblyName>
     <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+    <!-- v1.1.30: explicit DPI awareness = "system" instead of WPF default
+         (PerMonitorV2). Fixes a 1px white-line artifact on managed
+         Win11 hardware. See app.manifest for full rationale. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
