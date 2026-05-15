@@ -16,9 +16,9 @@
         <Rectangle Opacity="0.95">
             <Rectangle.Fill>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                    <GradientStop x:Name="StopA" Color="{StaticResource Color.AuroraA}" Offset="0.0" />
-                    <GradientStop x:Name="StopB" Color="{StaticResource Color.AuroraB}" Offset="0.5" />
-                    <GradientStop x:Name="StopC" Color="{StaticResource Color.AuroraC}" Offset="1.0" />
+                    <GradientStop x:Name="StopA" Color="{DynamicResource Color.AuroraA}" Offset="0.0" />
+                    <GradientStop x:Name="StopB" Color="{DynamicResource Color.AuroraB}" Offset="0.5" />
+                    <GradientStop x:Name="StopC" Color="{DynamicResource Color.AuroraC}" Offset="1.0" />
                 </LinearGradientBrush>
             </Rectangle.Fill>
         </Rectangle>

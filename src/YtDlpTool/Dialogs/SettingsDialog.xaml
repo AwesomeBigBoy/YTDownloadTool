@@ -29,8 +29,8 @@
                         <StackPanel>
                             <TextBlock Text="{StaticResource Settings.SectionDownload}"
                                        FontSize="16" FontWeight="SemiBold"
-                                       Foreground="{StaticResource Brush.TextPrimary}" />
-                            <Rectangle Height="1" Fill="{StaticResource Brush.GlassBorder}" Margin="0,8,0,12" />
+                                       Foreground="{DynamicResource Brush.TextPrimary}" />
+                            <Rectangle Height="1" Fill="{DynamicResource Brush.GlassBorder}" Margin="0,8,0,12" />
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="200" />
@@ -43,12 +43,12 @@
 
                                 <TextBlock Grid.Row="0" Grid.Column="0"
                                            Text="{StaticResource Settings.DefaultSaveDir}"
-                                           Foreground="{StaticResource Brush.TextSecondary}"
+                                           Foreground="{DynamicResource Brush.TextSecondary}"
                                            VerticalAlignment="Center"
                                            Margin="0,8" />
                                 <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="0,8">
                                     <TextBlock x:Name="DefaultDirText" Width="260"
-                                               Foreground="{StaticResource Brush.TextPrimary}"
+                                               Foreground="{DynamicResource Brush.TextPrimary}"
                                                TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                     <Button Content="{StaticResource Save.Browse}"
                                             Style="{StaticResource LinkButton}"
@@ -58,7 +58,7 @@
 
                                 <TextBlock Grid.Row="1" Grid.Column="0"
                                            Text="{StaticResource Settings.Concurrency}"
-                                           Foreground="{StaticResource Brush.TextSecondary}"
+                                           Foreground="{DynamicResource Brush.TextSecondary}"
                                            VerticalAlignment="Center"
                                            Margin="0,8" />
                                 <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,8">
@@ -68,7 +68,7 @@
                                             VerticalAlignment="Center" />
                                     <TextBlock Margin="12,0,0,0"
                                                FontFamily="{StaticResource Font.Numeric}"
-                                               Foreground="{StaticResource Brush.TextPrimary}"
+                                               Foreground="{DynamicResource Brush.TextPrimary}"
                                                Text="{Binding Value, ElementName=ConcurrencySlider}"
                                                VerticalAlignment="Center" />
                                 </StackPanel>
@@ -81,8 +81,8 @@
                         <StackPanel>
                             <TextBlock Text="{StaticResource Settings.SectionUpdate}"
                                        FontSize="16" FontWeight="SemiBold"
-                                       Foreground="{StaticResource Brush.TextPrimary}" />
-                            <Rectangle Height="1" Fill="{StaticResource Brush.GlassBorder}" Margin="0,8,0,12" />
+                                       Foreground="{DynamicResource Brush.TextPrimary}" />
+                            <Rectangle Height="1" Fill="{DynamicResource Brush.GlassBorder}" Margin="0,8,0,12" />
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="200" />
@@ -96,7 +96,7 @@
 
                                 <TextBlock Grid.Row="0" Grid.Column="0"
                                            Text="{StaticResource Settings.CheckFrequency}"
-                                           Foreground="{StaticResource Brush.TextSecondary}"
+                                           Foreground="{DynamicResource Brush.TextSecondary}"
                                            VerticalAlignment="Center"
                                            Margin="0,8" />
                                 <ComboBox x:Name="FrequencyCombo" Grid.Row="0" Grid.Column="1"
@@ -126,7 +126,7 @@
                                 <TextBlock x:Name="UpdateStatusText"
                                            Margin="0,8,0,0"
                                            Visibility="Collapsed"
-                                           Foreground="{StaticResource Brush.TextSecondary}"
+                                           Foreground="{DynamicResource Brush.TextSecondary}"
                                            FontFamily="{StaticResource Font.Numeric}" />
                                 <ProgressBar x:Name="UpdateProgressBar"
                                              Margin="0,6,0,0" Height="6"
@@ -152,8 +152,8 @@
                         <StackPanel>
                             <TextBlock Text="{StaticResource Settings.SectionUi}"
                                        FontSize="16" FontWeight="SemiBold"
-                                       Foreground="{StaticResource Brush.TextPrimary}" />
-                            <Rectangle Height="1" Fill="{StaticResource Brush.GlassBorder}" Margin="0,8,0,12" />
+                                       Foreground="{DynamicResource Brush.TextPrimary}" />
+                            <Rectangle Height="1" Fill="{DynamicResource Brush.GlassBorder}" Margin="0,8,0,12" />
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="200" />
@@ -165,7 +165,7 @@
                                 </Grid.RowDefinitions>
                                 <TextBlock Grid.Row="0" Grid.Column="0"
                                            Text="{StaticResource Settings.Language}"
-                                           Foreground="{StaticResource Brush.TextSecondary}"
+                                           Foreground="{DynamicResource Brush.TextSecondary}"
                                            VerticalAlignment="Center" Margin="0,8" />
                                 <ComboBox Grid.Row="0" Grid.Column="1"
                                           SelectedIndex="0" Width="240" HorizontalAlignment="Left" Margin="0,8">
@@ -173,7 +173,7 @@
                                 </ComboBox>
                                 <TextBlock Grid.Row="1" Grid.Column="0"
                                            Text="{StaticResource Settings.Theme}"
-                                           Foreground="{StaticResource Brush.TextSecondary}"
+                                           Foreground="{DynamicResource Brush.TextSecondary}"
                                            VerticalAlignment="Center" Margin="0,8" />
                                 <ComboBox x:Name="ThemeCombo" Grid.Row="1" Grid.Column="1"
                                           Width="240" HorizontalAlignment="Left" Margin="0,8">
@@ -190,8 +190,8 @@
                         <StackPanel>
                             <TextBlock Text="{StaticResource Settings.SectionAdvanced}"
                                        FontSize="16" FontWeight="SemiBold"
-                                       Foreground="{StaticResource Brush.TextPrimary}" />
-                            <Rectangle Height="1" Fill="{StaticResource Brush.GlassBorder}" Margin="0,8,0,12" />
+                                       Foreground="{DynamicResource Brush.TextPrimary}" />
+                            <Rectangle Height="1" Fill="{DynamicResource Brush.GlassBorder}" Margin="0,8,0,12" />
                             <WrapPanel Orientation="Horizontal">
                                 <Button Content="{StaticResource Settings.OpenLogs}"
                                         Style="{StaticResource SecondaryButton}"
@@ -211,7 +211,7 @@
                             <TextBlock x:Name="RedownloadStatusText"
                                        Margin="0,8,0,0"
                                        Visibility="Collapsed"
-                                       Foreground="{StaticResource Brush.TextSecondary}"
+                                       Foreground="{DynamicResource Brush.TextSecondary}"
                                        FontFamily="{StaticResource Font.Numeric}" />
                             <ProgressBar x:Name="RedownloadProgressBar"
                                          Margin="0,6,0,0" Height="6"
