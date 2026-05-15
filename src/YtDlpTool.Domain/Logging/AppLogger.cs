@@ -60,6 +60,12 @@ public sealed class AppLogger : IDisposable
                 }
             }
             _writer.WriteLine();
+
+            // Always flush Warn/Error immediately so failure diagnostics are visible
+            // to users tailing the log file in real time — buffered Info-level events
+            // get a periodic flush via Dispose / explicit Flush(), but Warn/Error must
+            // not be hidden in a buffer when the user is actively debugging.
+            if (level >= LogLevel.Warn) _writer.Flush();
         }
     }
 
