@@ -16,16 +16,19 @@ public sealed class YtDlpRunner
         string url,
         CancellationToken cancellationToken = default)
     {
+        var fetchArgs = new List<string>
+        {
+            "--dump-single-json",
+            "--no-playlist",
+            "--no-warnings",
+        };
+        AddSystemProxyArgs(fetchArgs);
+        fetchArgs.Add("--");
+        fetchArgs.Add(url);
+
         var args = new ProcessStartArguments(
             ExecutablePath: _executable,
-            Arguments: new[]
-            {
-                "--dump-single-json",
-                "--no-playlist",
-                "--no-warnings",
-                "--",
-                url
-            },
+            Arguments: fetchArgs,
             Timeout: TimeSpan.FromSeconds(30));
 
         var stdoutLines = new List<string>();
@@ -105,6 +108,7 @@ public sealed class YtDlpRunner
         argList.AddRange(BuildSubtitleArgs(request));
         argList.AddRange(BuildClipArgs(request));
         argList.AddRange(BuildFfmpegLocationArgs());
+        AddSystemProxyArgs(argList);
         if (request.EmbedThumbnail) argList.Add("--embed-thumbnail");
         if (request.ForceOverwrite) argList.Add("--force-overwrites");
         argList.Add("--");
@@ -164,6 +168,21 @@ public sealed class YtDlpRunner
         // yt-dlp prints a misleading warning and the flag has no effect; omit it cleanly.
         if (r.Mode != DownloadMode.AudioOnly)
             yield return "--force-keyframes-at-cuts";
+    }
+
+    /// <summary>
+    /// Fix D: managed environments almost always have a corporate HTTP proxy configured
+    /// in the Internet Settings hive. yt-dlp's urllib doesn't read WinHTTP, so we
+    /// pass the detected proxy URL via --proxy here. No-op when no proxy is set.
+    /// </summary>
+    private static void AddSystemProxyArgs(List<string> argList)
+    {
+        var systemProxy = SystemProxy.DetectHttpProxy();
+        if (!string.IsNullOrEmpty(systemProxy))
+        {
+            argList.Add("--proxy");
+            argList.Add(systemProxy);
+        }
     }
 
     /// <summary>
