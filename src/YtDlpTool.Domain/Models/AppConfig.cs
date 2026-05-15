@@ -22,6 +22,14 @@ public sealed class AppConfig
     // relaunch.
     public bool ForceSoftwareRendering { get; set; } = false;
 
+    // Emergency fallback for managed environments where SystemCertBundle-based trust
+    // doesn't fix SSL handshake (e.g., the SSL-inspection CA isn't in any Windows
+    // root store, or IT installs it only in the user store of a non-current user).
+    // When true, yt-dlp gets --no-check-certificates. SECURITY TRADEOFF: yt-dlp
+    // will accept ANY HTTPS certificate without verification, so a hostile network
+    // could MITM the YouTube traffic. Default false; document as IT-supported toggle.
+    public bool AllowUntrustedCertificates { get; set; } = false;
+
     public static AppConfig CreateDefault()
     {
         return new AppConfig

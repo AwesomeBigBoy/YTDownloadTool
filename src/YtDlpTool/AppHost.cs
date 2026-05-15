@@ -47,11 +47,37 @@ public sealed class AppHost : IDisposable
             () => DateTime.Now);
         AppLogger.PurgeOlderThan(Paths.LogsDirectory, TimeSpan.FromDays(7), DateTime.Now);
 
+        // Generate a CA bundle from Windows' trust store and expose it via SSL_CERT_FILE.
+        // This is THE fix for managed environments with SSL inspection: yt-dlp's bundled
+        // Python certifi doesn't know about the site-installed CA installed via GPO into
+        // Windows' root store. Without this, yt-dlp's HTTPS handshake fails silently
+        // and the metadata fetch hangs until our 30s timeout while the browser on the
+        // same machine works fine (because browsers trust the Windows store directly).
+        var caBundlePath = Path.Combine(Paths.DataRoot, "system-ca-bundle.pem");
+        if (SystemCertBundle.GenerateOrRefresh(caBundlePath))
+        {
+            // Setting it on the parent process means ProcessSandbox's existing
+            // SSL_CERT_FILE pass-through (added in v1.1.14) auto-propagates to yt-dlp.
+            Environment.SetEnvironmentVariable("SSL_CERT_FILE", caBundlePath);
+            Logger.Info("ca-bundle.generated", new Dictionary<string, string>
+            {
+                ["path"]   = caBundlePath,
+                ["bytes"]  = new FileInfo(caBundlePath).Length.ToString(),
+            });
+        }
+        else
+        {
+            Logger.Warn("ca-bundle.generation_failed", new Dictionary<string, string>
+            {
+                ["path"] = caBundlePath
+            });
+        }
+
         StateJournal = new StateJournal(Paths.StateLog);
 
         var ytDlpExe  = Path.Combine(Paths.BinDirectory, "yt-dlp.exe");
         var ffmpegExe = Path.Combine(Paths.BinDirectory, "ffmpeg.exe");
-        YtDlp  = new YtDlpRunner(ytDlpExe);
+        YtDlp  = new YtDlpRunner(ytDlpExe, allowUntrustedCerts: Config.AllowUntrustedCertificates);
         Ffmpeg = new FfmpegRunner(ffmpegExe);
 
         UpdateHttp = new HttpUpdateClient($"YtDlpTool/{ThisVersion()}");

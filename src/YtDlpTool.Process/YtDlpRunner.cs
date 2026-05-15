@@ -6,10 +6,12 @@ namespace YtDlpTool.Process;
 public sealed class YtDlpRunner
 {
     private readonly string _executable;
+    private readonly bool _allowUntrustedCerts;
 
-    public YtDlpRunner(string executable)
+    public YtDlpRunner(string executable, bool allowUntrustedCerts = false)
     {
         _executable = executable;
+        _allowUntrustedCerts = allowUntrustedCerts;
     }
 
     public async Task<MetadataFetchResult> FetchMetadataAsync(
@@ -22,6 +24,7 @@ public sealed class YtDlpRunner
             "--no-playlist",
             "--no-warnings",
         };
+        if (_allowUntrustedCerts) fetchArgs.Add("--no-check-certificates");
         AddSystemProxyArgs(fetchArgs);
         fetchArgs.Add("--");
         fetchArgs.Add(url);
@@ -263,6 +266,7 @@ public sealed class YtDlpRunner
         };
         argList.AddRange(BuildFfmpegLocationArgs());
         AddSystemProxyArgs(argList);
+        if (_allowUntrustedCerts) argList.Add("--no-check-certificates");
         argList.Add("--");
         argList.Add(url);
 
