@@ -86,4 +86,48 @@ public class ErrorMapperTests
         var r = ErrorMapper.Map(stderr);
         Assert.Equal(ErrorCategory.PremiereUpcoming, r.Category);
     }
+
+    [Fact]
+    public void Map_AppLockerBlock_ReturnsBlockedMessage()
+    {
+        // Fix C: ProcessSandbox (Fix B) bubbles up a friendly hint when AppLocker /
+        // WDAC blocks the child binary. ErrorMapper should bucket it as
+        // ComponentMissing with code E-BLOCK01 and a whitelist instruction.
+        const string stderr = "Process.Start failed: AppLocker 群組原則拒絕執行此程式 — Some Win32 detail";
+        var r = ErrorMapper.Map(stderr);
+        Assert.Equal(ErrorCategory.ComponentMissing, r.Category);
+        Assert.Equal("E-BLOCK01", r.ErrorCode);
+        Assert.Contains("白名單", r.UserMessage);
+    }
+
+    [Fact]
+    public void Map_SslFailure_ReturnsSslMessage()
+    {
+        // Fix C: HTTPS inspection / TLS interception surfaces as a
+        // CERTIFICATE_VERIFY_FAILED line. We want a dedicated E-SSL01 with a
+        // proxy hint instead of dumping the raw traceback on the user.
+        const string stderr =
+            "[youtube] abc123: Downloading webpage\n" +
+            "ssl.SSLCertVerificationError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self signed certificate in certificate chain (_ssl.c:1129)\n";
+        var r = ErrorMapper.Map(stderr);
+        Assert.Equal(ErrorCategory.NetworkError, r.Category);
+        Assert.Equal("E-SSL01", r.ErrorCode);
+        Assert.Contains("SSL", r.UserMessage);
+    }
+
+    [Fact]
+    public void Map_UnrecognisedStderr_SurfacesLastLine()
+    {
+        // Fix C: if none of the rules match and there is no ERROR: line, surface
+        // the LAST non-empty line of stderr instead of an opaque hash code so the
+        // user at least sees what failed.
+        const string stderr =
+            "[generic] some-host: Requesting header\n" +
+            "[generic] some-host: Downloading webpage\n" +
+            "WeirdCustomError: thingy did not work\n";
+        var r = ErrorMapper.Map(stderr);
+        Assert.Equal(ErrorCategory.UnknownError, r.Category);
+        Assert.StartsWith("下載失敗：", r.UserMessage);
+        Assert.Contains("WeirdCustomError", r.UserMessage);
+    }
 }

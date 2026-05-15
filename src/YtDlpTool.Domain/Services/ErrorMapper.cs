@@ -59,17 +59,63 @@ public static class ErrorMapper
             if (r.Pattern.IsMatch(stderr))
                 return new MappedError(r.Cat, r.Message, r.Code, r.CanRetry, raw);
 
+        var code = $"E-{HashCode(stderr)}";
+
+        // Fix C: surface common AD-environment failures BEFORE the generic ERROR-line
+        // fallback, so the more specific category wins. These typically come from
+        // ProcessSandbox (Fix B) bubbling up a Win32Exception hint, or from urllib's
+        // SSL / proxy errors that include "...Error:" tokens that would otherwise be
+        // swallowed by the generic ERROR-line fallback.
+        if (stderr.Contains("AppLocker", StringComparison.OrdinalIgnoreCase) ||
+            stderr.Contains("被防毒隔離", StringComparison.Ordinal) ||
+            stderr.Contains("找不到可執行檔", StringComparison.Ordinal) ||
+            stderr.Contains("存取被拒", StringComparison.Ordinal))
+        {
+            return new MappedError(ErrorCategory.ComponentMissing,
+                "處理元件無法啟動：可能被防毒/AppLocker 阻擋。請聯絡 IT 將 YtDlpTool.exe、yt-dlp.exe、ffmpeg.exe 加入白名單，或將整個資料夾移到使用者個人目錄。",
+                "E-BLOCK01", false, raw);
+        }
+
+        if (stderr.Contains("certificate verify failed", StringComparison.OrdinalIgnoreCase) ||
+            stderr.Contains("CERTIFICATE_VERIFY_FAILED", StringComparison.Ordinal) ||
+            stderr.Contains("SSLError", StringComparison.OrdinalIgnoreCase) ||
+            stderr.Contains("SSL: ", StringComparison.OrdinalIgnoreCase))
+        {
+            return new MappedError(ErrorCategory.NetworkError,
+                "SSL 憑證驗證失敗：企業網路可能有 SSL 攔截/檢查。請聯絡 IT，或於設定→進階確認代理伺服器設定。",
+                "E-SSL01", false, raw);
+        }
+
+        if (stderr.Contains("ProxyError", StringComparison.OrdinalIgnoreCase) ||
+            (stderr.Contains("proxy", StringComparison.OrdinalIgnoreCase) &&
+             stderr.Contains("403", StringComparison.Ordinal)))
+        {
+            return new MappedError(ErrorCategory.NetworkError,
+                "代理伺服器拒絕連線：企業 proxy 可能要求認證。請聯絡 IT 或於設定中手動設定 proxy。",
+                "E-PROXY01", false, raw);
+        }
+
         // Fallback diagnostic: when no rule matches but stderr does contain an ERROR: line,
         // surface that line in the user message so the bug report doesn't reduce to
         // "下載失敗（錯誤代碼 E-XXXXX）". This still avoids the literal English word "Error"
         // (we keep "ERROR:" in caps so existing assertions remain satisfied).
         var errLine = FindErrorLine(stderr);
-        var code = $"E-{HashCode(stderr)}";
         if (errLine is not null)
         {
             var clean = errLine.Trim();
             if (clean.Length > 160) clean = clean.Substring(0, 160) + "…";
             return new MappedError(ErrorCategory.UnknownError, $"下載失敗：{clean}", code, false, raw);
+        }
+
+        // Final fallback: instead of just a hash code, surface the last non-empty
+        // line of stderr so the user at least sees what blew up.
+        var lastLine = stderr.Split('\n').Reverse()
+            .FirstOrDefault(l => !string.IsNullOrWhiteSpace(l))?.Trim();
+        if (!string.IsNullOrEmpty(lastLine))
+        {
+            if (lastLine.Length > 160) lastLine = lastLine.Substring(0, 160) + "…";
+            return new MappedError(ErrorCategory.UnknownError,
+                $"下載失敗：{lastLine}", code, false, raw);
         }
 
         return new MappedError(ErrorCategory.UnknownError,
