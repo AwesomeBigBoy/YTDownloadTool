@@ -47,18 +47,25 @@ public sealed class AppHost : IDisposable
             () => DateTime.Now);
         AppLogger.PurgeOlderThan(Paths.LogsDirectory, TimeSpan.FromDays(7), DateTime.Now);
 
-        // Generate a CA bundle from Windows' trust store and expose it via SSL_CERT_FILE.
+        // Generate a CA bundle from Windows' trust store and inject it into yt-dlp.
         // This is THE fix for managed environments with SSL inspection: yt-dlp's bundled
         // Python certifi doesn't know about the site-installed CA installed via GPO into
         // Windows' root store. Without this, yt-dlp's HTTPS handshake fails silently
         // and the metadata fetch hangs until our 30s timeout while the browser on the
         // same machine works fine (because browsers trust the Windows store directly).
+        //
+        // v1.1.17: switched from Environment.SetEnvironmentVariable + ProcessSandbox
+        // pass-through to EXPLICIT INJECTION via YtDlpRunner constructor → built into
+        // every ProcessStartArguments.ExtraEnv. The global-env round-trip was unreliable
+        // on managed Windows hosts in v1.1.16 — even though the env var was set in
+        // the parent process and the pass-through whitelist included SSL_CERT_FILE,
+        // yt-dlp children launched via ProcessStartInfo did not see it. Explicit
+        // injection on each ProcessStartArguments removes the global-env hop entirely.
         var caBundlePath = Path.Combine(Paths.DataRoot, "system-ca-bundle.pem");
+        string? injectableCaBundle = null;
         if (SystemCertBundle.GenerateOrRefresh(caBundlePath))
         {
-            // Setting it on the parent process means ProcessSandbox's existing
-            // SSL_CERT_FILE pass-through (added in v1.1.14) auto-propagates to yt-dlp.
-            Environment.SetEnvironmentVariable("SSL_CERT_FILE", caBundlePath);
+            injectableCaBundle = caBundlePath;
             Logger.Info("ca-bundle.generated", new Dictionary<string, string>
             {
                 ["path"]   = caBundlePath,
@@ -77,8 +84,17 @@ public sealed class AppHost : IDisposable
 
         var ytDlpExe  = Path.Combine(Paths.BinDirectory, "yt-dlp.exe");
         var ffmpegExe = Path.Combine(Paths.BinDirectory, "ffmpeg.exe");
-        YtDlp  = new YtDlpRunner(ytDlpExe, allowUntrustedCerts: Config.AllowUntrustedCertificates);
+        YtDlp  = new YtDlpRunner(
+            ytDlpExe,
+            allowUntrustedCerts: Config.AllowUntrustedCertificates,
+            caBundlePath: injectableCaBundle);
         Ffmpeg = new FfmpegRunner(ffmpegExe);
+
+        Logger.Info("ytdlp.ca-bundle.inject", new Dictionary<string, string>
+        {
+            ["enabled"] = (injectableCaBundle is not null).ToString(),
+            ["path"]    = injectableCaBundle ?? "(disabled)",
+        });
 
         UpdateHttp = new HttpUpdateClient($"YtDlpTool/{ThisVersion()}");
 
