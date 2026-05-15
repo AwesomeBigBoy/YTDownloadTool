@@ -60,8 +60,32 @@ public static class ProcessSandbox
             lock (stderr) stderr.AppendLine(e.Data);
         };
 
-        if (!process.Start())
-            return new ProcessExitInfo(-1, "process failed to start", false, false, false, false);
+        // Process.Start can throw before the child even runs — most often when the
+        // executable file is missing (AV quarantine) or AppLocker / WDAC blocks it.
+        // We surface a friendly diagnostic via ProcessExitInfo.Stderr so the rest of
+        // the failure pipeline (ErrorMapper, log lines) can act on it instead of an
+        // opaque Win32Exception that just bubbles to the UI.
+        try
+        {
+            if (!process.Start())
+                return new ProcessExitInfo(-1, "Process.Start returned false (no further detail)", false, false, false, false);
+        }
+        catch (System.ComponentModel.Win32Exception wex)
+        {
+            var hint = wex.NativeErrorCode switch
+            {
+                2    => "找不到可執行檔（檔案可能被防毒隔離或缺失）",
+                5    => "存取被拒（AppLocker / WDAC 可能阻擋此程式執行）",
+                740  => "需要提升權限（Elevation required）",
+                1260 => "AppLocker 群組原則拒絕執行此程式",
+                _    => $"Win32 錯誤 {wex.NativeErrorCode}"
+            };
+            return new ProcessExitInfo(-1, $"Process.Start failed: {hint} — {wex.Message}", false, false, false, false);
+        }
+        catch (Exception ex)
+        {
+            return new ProcessExitInfo(-1, $"Process.Start failed: {ex.GetType().Name}: {ex.Message}", false, false, false, false);
+        }
 
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
