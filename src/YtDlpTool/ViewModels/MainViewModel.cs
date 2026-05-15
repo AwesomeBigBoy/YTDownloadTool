@@ -90,7 +90,7 @@ public partial class MainViewModel : ObservableObject
             switch (evt)
             {
                 case JobEnqueuedEvent e:
-                    Queue.Add(new QueueItemViewModel
+                    var newItem = new QueueItemViewModel
                     {
                         Id = e.Job.Id,
                         Title = e.Job.Title,
@@ -98,7 +98,11 @@ public partial class MainViewModel : ObservableObject
                         Status = JobStatus.Pending,
                         ModeLabel = ModeLabel(e.Job.Mode),
                         QualityLabel = QualityLabel(e.Job.ChosenFormat)
-                    });
+                    };
+                    Queue.Add(newItem);
+                    // Load the thumbnail in-memory so the queue row's <Image> never has
+                    // to round-trip through WinINet (which would write to INetCache).
+                    _ = LoadQueueThumbnailAsync(newItem, e.Job.ThumbnailUrl);
                     break;
                 case JobStartedEvent e:
                     Find(e.Job.Id)?.SetStatus(JobStatus.Downloading);
@@ -146,6 +150,12 @@ public partial class MainViewModel : ObservableObject
     }
 
     private QueueItemViewModel? Find(Guid id) => Queue.FirstOrDefault(q => q.Id == id);
+
+    private static async Task LoadQueueThumbnailAsync(QueueItemViewModel item, string url)
+    {
+        var bmp = await Interop.InMemoryThumbnailLoader.LoadAsync(url).ConfigureAwait(true);
+        if (bmp is not null) item.ThumbnailImage = bmp;
+    }
 
     private static string ModeLabel(DownloadMode m) => m switch
     {
