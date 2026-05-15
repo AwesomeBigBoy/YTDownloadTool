@@ -116,6 +116,34 @@ public class ErrorMapperTests
     }
 
     [Fact]
+    public void Map_RuleMatch_PreservesRawDetails()
+    {
+        // Fix 2: the rule-match path must propagate the truncated raw stderr so the
+        // download.failed log entry actually contains the yt-dlp diagnosis. A unique
+        // marker proves the stderr survived end-to-end (and isn't just the rule's
+        // canned message).
+        const string stderr =
+            "[youtube] abc123: Downloading webpage MARKER_XYZ\n" +
+            "ERROR: HTTP Error 429: Too Many Requests\n";
+        var r = ErrorMapper.Map(stderr);
+        Assert.Equal(ErrorCategory.RateLimited, r.Category);
+        Assert.NotNull(r.RawDetails);
+        Assert.Contains("MARKER_XYZ", r.RawDetails);
+    }
+
+    [Fact]
+    public void Map_RawDetails_TruncatedAt500Chars()
+    {
+        // Fix 2: even when stderr is enormous, RawDetails must stay log-line sized.
+        // 2000 'x's plus a leading ERROR token; the truncation cap is 500 chars.
+        var stderr = "ERROR: something exploded\n" + new string('x', 2000);
+        var r = ErrorMapper.Map(stderr);
+        Assert.NotNull(r.RawDetails);
+        Assert.True(r.RawDetails!.Length <= 500,
+            $"RawDetails length {r.RawDetails.Length} exceeded 500-char cap");
+    }
+
+    [Fact]
     public void Map_UnrecognisedStderr_SurfacesLastLine()
     {
         // Fix C: if none of the rules match and there is no ERROR: line, surface
