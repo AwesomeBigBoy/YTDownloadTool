@@ -27,10 +27,23 @@ public static class InMemoryThumbnailLoader
 
     public static async Task<ImageSource?> LoadAsync(string url, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _)) return null;
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
         try
         {
-            var bytes = await Http.GetByteArrayAsync(url, ct).ConfigureAwait(false);
+            // v1.1.25: support file:// URIs so YtDlpRunner's locally-cached
+            // thumbnail (downloaded via yt-dlp --write-thumbnail to bypass
+            // endpoint security software blocking our app's outbound HTTPS) can be loaded
+            // through the same code path the UI already uses for remote URLs.
+            byte[] bytes;
+            if (uri.IsFile)
+            {
+                if (!File.Exists(uri.LocalPath)) return null;
+                bytes = await File.ReadAllBytesAsync(uri.LocalPath, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                bytes = await Http.GetByteArrayAsync(url, ct).ConfigureAwait(false);
+            }
             if (bytes.Length == 0) return null;
 
             // BitmapFrame.Create with OnLoad + the using-stream pattern decodes the entire

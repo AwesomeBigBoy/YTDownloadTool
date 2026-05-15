@@ -42,11 +42,13 @@
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="CornerRadius" Value="14" />
         <Setter Property="Padding" Value="{StaticResource Space.5}" />
-        <Setter Property="Effect">
-            <Setter.Value>
-                <DropShadowEffect Color="Black" Opacity="0.08" BlurRadius="20" ShadowDepth="2" />
-            </Setter.Value>
-        </Setter>
+        <!-- v1.1.25: DropShadowEffect removed. User reported a persistent
+             "white border" around cards even after BorderThickness was set
+             to 0 in v1.1.22. The 20px-blur + 2px-offset black shadow can
+             render as a visible halo at the top edge of each card on
+             certain GPUs / rendering modes, contributing to the perceived
+             border. Without the shadow the card sits flat on the gradient,
+             which loses the depth cue but removes the artefact. -->
     </Style>
 
     <Style x:Key="SegmentButtonStyle" TargetType="Button">
