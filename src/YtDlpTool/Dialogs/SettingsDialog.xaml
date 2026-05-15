@@ -8,7 +8,8 @@
         WindowStartupLocation="CenterOwner"
         WindowStyle="SingleBorderWindow"
         ResizeMode="NoResize"
-        Background="#FFF8F0"
+        Background="{DynamicResource Brush.GlassFill}"
+        Foreground="{DynamicResource Brush.TextPrimary}"
         FontFamily="{StaticResource Font.Default}"
         FontSize="14">
     <Grid>

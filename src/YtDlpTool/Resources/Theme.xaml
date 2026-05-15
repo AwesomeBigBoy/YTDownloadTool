@@ -56,7 +56,10 @@
     </Style>
 
     <Style x:Key="SegmentButtonStyle" TargetType="Button">
-        <Setter Property="Background" Value="Transparent" />
+        <!-- v1.1.29: Background uses Brush.ButtonSurface (theme-aware tint) so
+             inactive segment buttons stay readable on the dark theme — the prior
+             "Transparent" background made them disappear into the card body. -->
+        <Setter Property="Background" Value="{DynamicResource Brush.ButtonSurface}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
         <Setter Property="FontFamily" Value="{StaticResource Font.Default}" />
         <Setter Property="FontSize" Value="14" />
@@ -322,16 +325,31 @@
         </Setter>
     </Style>
 
-    <!-- Default ComboBox chrome -->
+    <!-- Default ComboBox chrome.
+         v1.1.29: Background pinned to white + Foreground to dark navy regardless
+         of theme. The system-rendered dropdown popup uses an opaque white
+         background that WPF default templates do not let us re-skin without a
+         full ControlTemplate override. If we let the ComboBox face use
+         DynamicResource Brush.TextPrimary (light text in dark theme), the
+         items in the popup are then unreadable (light-on-white). Pinning
+         both face and items to dark-on-white means the ComboBox always
+         looks like a discrete white pill — distinct from the dark card
+         background it sits on, and always readable. -->
     <Style TargetType="ComboBox">
-        <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
-        <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+        <Setter Property="Background" Value="White" />
+        <Setter Property="Foreground" Value="#1A1D2E" />
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Padding" Value="10,6" />
         <Setter Property="Height" Value="36" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="FontFamily" Value="{StaticResource Font.Default}" />
+    </Style>
+
+    <Style TargetType="ComboBoxItem">
+        <Setter Property="Foreground" Value="#1A1D2E" />
+        <Setter Property="Background" Value="White" />
+        <Setter Property="Padding" Value="8,6" />
     </Style>
 
     <!-- v1.1.28: default CheckBox / TextBox / Expander styles so dark theme actually

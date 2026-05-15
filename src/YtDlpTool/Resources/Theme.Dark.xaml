@@ -19,6 +19,7 @@
     <Color x:Key="Color.TextTertiary">#80FFFFFF</Color>   <!-- 50% near-white, hint/meta -->
     <Color x:Key="Color.GlassBorder">#33FFFFFF</Color>    <!-- 20% white rim, soft on dark fill -->
     <Color x:Key="Color.GlassFill">#D91A2235</Color>      <!-- 85% deep navy — opaque enough for solid card feel -->
+    <Color x:Key="Color.ButtonSurface">#26FFFFFF</Color>  <!-- 15% white — subtle lift for inactive segment buttons -->
     <Color x:Key="Color.AuroraA">#1F2A4D</Color>          <!-- deep navy -->
     <Color x:Key="Color.AuroraB">#2C2A4D</Color>          <!-- deep indigo -->
     <Color x:Key="Color.AuroraC">#1F3A4D</Color>          <!-- deep slate-teal -->
@@ -33,5 +34,6 @@
     <SolidColorBrush x:Key="Brush.TextTertiary" Color="{StaticResource Color.TextTertiary}" />
     <SolidColorBrush x:Key="Brush.GlassBorder" Color="{StaticResource Color.GlassBorder}" />
     <SolidColorBrush x:Key="Brush.GlassFill"   Color="{StaticResource Color.GlassFill}" />
+    <SolidColorBrush x:Key="Brush.ButtonSurface" Color="{StaticResource Color.ButtonSurface}" />
 
 </ResourceDictionary>

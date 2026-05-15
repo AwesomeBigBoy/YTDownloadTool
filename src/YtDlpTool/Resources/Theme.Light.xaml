@@ -16,6 +16,10 @@
          v1.1.16 visual was preferable, white edge included. -->
     <Color x:Key="Color.GlassBorder">#99FFFFFF</Color>    <!-- 60% white -->
     <Color x:Key="Color.GlassFill">#E0FFFFFF</Color>      <!-- 88% white — crisp cards over bright gradient -->
+    <!-- v1.1.29: subtle dark tint for inactive segment buttons / dropdowns so
+         they don't disappear into the card body. Calibrated for both themes:
+         8% over a light card here, 20% over a dark card in the Dark variant. -->
+    <Color x:Key="Color.ButtonSurface">#14000000</Color>  <!-- 8% black -->
     <Color x:Key="Color.AuroraA">#FF5A8F</Color>          <!-- vivid hot pink -->
     <Color x:Key="Color.AuroraB">#FFA940</Color>          <!-- vivid orange-peach -->
     <Color x:Key="Color.AuroraC">#40C8FF</Color>          <!-- vivid sky blue -->
@@ -32,5 +36,6 @@
     <SolidColorBrush x:Key="Brush.TextTertiary" Color="{StaticResource Color.TextTertiary}" />
     <SolidColorBrush x:Key="Brush.GlassBorder" Color="{StaticResource Color.GlassBorder}" />
     <SolidColorBrush x:Key="Brush.GlassFill"   Color="{StaticResource Color.GlassFill}" />
+    <SolidColorBrush x:Key="Brush.ButtonSurface" Color="{StaticResource Color.ButtonSurface}" />
 
 </ResourceDictionary>
