@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
+using YtDlpTool.Domain.Logging;
 using YtDlpTool.Domain.Models;
 using YtDlpTool.Domain.Services;
 using YtDlpTool.Interop;
@@ -67,6 +69,13 @@ public partial class UrlInputView : UserControl
         ParsingBar.Visibility = Visibility.Visible;
         vm.IsParsing = true;
 
+        var urlHash = AppLogger.HashSuffix(url);
+        var sw = Stopwatch.StartNew();
+        vm.Host.Logger.Info("url.parse.started", new Dictionary<string, string>
+        {
+            ["url_hash"] = urlHash
+        });
+
         try
         {
             var result = await vm.Host.YtDlp.FetchMetadataAsync(url, _inFlightCts.Token);
@@ -76,11 +85,26 @@ public partial class UrlInputView : UserControl
                 ShowError(mapped?.UserMessage ?? Strings.Get("Url.InvalidNotYouTube"));
                 HideMeta();
                 vm.CurrentMetadata = null;
+                vm.Host.Logger.Warn("url.parse.failed", new Dictionary<string, string>
+                {
+                    ["url_hash"] = urlHash,
+                    ["category"] = mapped?.Category.ToString() ?? "Unknown",
+                    ["error_code"] = mapped?.ErrorCode ?? "E-UNKNOWN",
+                    ["elapsed_ms"] = ((int)sw.ElapsedMilliseconds).ToString(),
+                    ["details"] = TruncateForLog(result.ErrorStderr ?? "")
+                });
                 return;
             }
             vm.CurrentMetadata = result.Metadata;
             ShowMeta(result.Metadata);
             if (!vm.ShowFirstHint) vm.ShowFirstHint = true;
+            vm.Host.Logger.Info("url.parse.completed", new Dictionary<string, string>
+            {
+                ["url_hash"] = urlHash,
+                ["video_id"] = result.Metadata.VideoId,
+                ["formats_count"] = result.Metadata.Formats.Count.ToString(),
+                ["elapsed_ms"] = ((int)sw.ElapsedMilliseconds).ToString()
+            });
             await ShowFirstHintBriefly();
         }
         catch (OperationCanceledException) { /* user typed more */ }
@@ -89,6 +113,19 @@ public partial class UrlInputView : UserControl
             ParsingBar.Visibility = Visibility.Collapsed;
             vm.IsParsing = false;
         }
+    }
+
+    /// <summary>
+    /// Collapses newlines to " | " and clips to 500 chars so a noisy yt-dlp stderr
+    /// fits cleanly on one log line. Used only for the operational log; raw stderr
+    /// stays in MappedError.RawDetails for diagnostic chaining.
+    /// </summary>
+    private static string TruncateForLog(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        var collapsed = s.Replace("\r\n", " | ").Replace('\n', '|').Replace('\r', '|').Trim();
+        if (collapsed.Length > 500) collapsed = collapsed.Substring(0, 500);
+        return collapsed;
     }
 
     private void ShowError(string message)
