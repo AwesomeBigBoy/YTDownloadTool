@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using YtDlpTool.Interop;
@@ -50,6 +51,30 @@ public partial class MainWindow : Window
         if (host is null) return;
         var dlg = new Dialogs.SettingsDialog(host) { Owner = this };
         dlg.ShowDialog();
+    }
+
+    private void OnOpenFolderClicked(object sender, RoutedEventArgs e)
+    {
+        // Surfaces the same affordance previously buried under Settings → 進階. We use
+        // ProcessStartInfo with UseShellExecute=true so Windows treats this like a normal
+        // explorer.exe invocation (which is what the user expects).
+        var host = ((App)Application.Current).Host;
+        if (host is null) return;
+        var dir = host.Config.DefaultSaveDirectory;
+        try
+        {
+            Directory.CreateDirectory(dir);
+            // Fully qualify System.Diagnostics.Process — the project's own YtDlpTool.Process
+            // namespace shadows the unqualified "Process" identifier here.
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", dir)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"無法開啟資料夾：{ex.Message}", "錯誤", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     private void OnAddDownloadClicked(object sender, RoutedEventArgs e)
