@@ -31,28 +31,33 @@ public class BuildClipArgsTests
     }
 
     [Fact]
-    public void VideoClip_IncludesForceKeyframes()
+    public void VideoClip_OmitsForceKeyframes()
     {
+        // v1.1.6: --force-keyframes-at-cuts is no longer emitted for any mode. The
+        // re-encode it triggered silently failed on many format combinations and left
+        // only sidecar files behind. The arg list should contain ONLY the download-sections
+        // tokens for clip mode.
         var range = new TimeRange(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(2));
         var args = YtDlpRunner.BuildClipArgs(Make(DownloadMode.AudioAndVideo, range)).ToList();
         Assert.Contains("--download-sections", args);
         Assert.Contains(range.ToYtDlpFormat(), args);
-        Assert.Contains("--force-keyframes-at-cuts", args);
+        Assert.DoesNotContain("--force-keyframes-at-cuts", args);
     }
 
     [Fact]
-    public void VideoOnlyClip_IncludesForceKeyframes()
+    public void VideoOnlyClip_OmitsForceKeyframes()
     {
         var range = new TimeRange(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(2));
         var args = YtDlpRunner.BuildClipArgs(Make(DownloadMode.VideoOnly, range)).ToList();
-        Assert.Contains("--force-keyframes-at-cuts", args);
+        Assert.DoesNotContain("--force-keyframes-at-cuts", args);
     }
 
     [Fact]
     public void AudioOnlyClip_OmitsForceKeyframes()
     {
-        // Fix 9: --force-keyframes-at-cuts has no effect for audio-only and yt-dlp prints
-        // a misleading warning. The arg list should NOT contain it.
+        // Audio-only: yt-dlp prints a misleading warning when --force-keyframes-at-cuts
+        // is passed with audio extraction. v1.1.6 drops the flag entirely, so this case
+        // still passes for the same reason as the video paths.
         var range = new TimeRange(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(2));
         var args = YtDlpRunner.BuildClipArgs(Make(DownloadMode.AudioOnly, range)).ToList();
         Assert.Contains("--download-sections", args);

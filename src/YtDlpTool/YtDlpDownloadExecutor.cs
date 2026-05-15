@@ -65,6 +65,27 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
             return new DownloadExecutionResult(false, null, mapped, false);
         }
 
+        // v1.1.6: post-success media verification. yt-dlp can return exit code 0 after
+        // producing only sidecars (.vtt subtitle + .jpg/.webp thumbnail) when its
+        // --download-sections + ffmpeg seek/cut combo fails silently. Confirm an
+        // actual media file landed in the save directory; otherwise convert this
+        // pseudo-success into a typed UnknownError so the user sees a real message
+        // instead of believing the download succeeded.
+        var probe = MediaOutputProbe.VerifyMediaOutputExists(job.SaveDirectory, request.SanitizedFileStem);
+        if (!probe.found)
+        {
+            var hint = job.ClipRange is not null
+                ? "片段下載未產生影音檔案。請嘗試：降低畫質、改選其他格式、或暫時關閉擷取片段功能後再下載完整影片再自行剪輯。"
+                : "下載未產生影音檔案，僅有附件（字幕/縮圖）。請嘗試其他格式或畫質。";
+            foreach (var leftover in probe.sidecarPaths)
+            {
+                try { File.Delete(leftover); } catch { /* best effort */ }
+            }
+            return new DownloadExecutionResult(false, null,
+                new MappedError(ErrorCategory.UnknownError, hint, "E-NOMEDIA1", false, ""),
+                WasCancelled: false);
+        }
+
         // Best-effort sidecar scrub: --embed-thumbnail normally removes the .webp/.jpg
         // sidecar after embedding, but failure modes (codec mismatch, ffmpeg crashed
         // mid-mux) leave orphans next to the final media file. Sweep the obvious

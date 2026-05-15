@@ -157,17 +157,18 @@ public sealed class YtDlpRunner
     }
 
     // Internal-visible so tests in YtDlpTool.Process.Tests can assert the arg list
-    // shape for both video and audio clip modes (Fix 9).
+    // shape for both video and audio clip modes (Fix 9 / v1.1.6 clip-success fix).
     internal static IEnumerable<string> BuildClipArgs(DownloadRequest r)
     {
         if (r.ClipRange is null) yield break;
         yield return "--download-sections";
         yield return r.ClipRange.ToYtDlpFormat();
-        // --force-keyframes-at-cuts only applies to video tracks — it triggers a re-encode
-        // around the cut points to honour the precise timestamps. For audio-only modes
-        // yt-dlp prints a misleading warning and the flag has no effect; omit it cleanly.
-        if (r.Mode != DownloadMode.AudioOnly)
-            yield return "--force-keyframes-at-cuts";
+        // --force-keyframes-at-cuts removed (v1.1.6): it required a re-encode around
+        // the cut points which silently failed on many format combinations, leaving
+        // only sidecar files (.vtt / .jpg / .webp) next to a missing media file while
+        // yt-dlp still exited 0. The cut may land on the nearest keyframe instead of
+        // the exact second, but the file actually gets produced. Frame-precise
+        // cutting is deferred to a future version.
     }
 
     /// <summary>
