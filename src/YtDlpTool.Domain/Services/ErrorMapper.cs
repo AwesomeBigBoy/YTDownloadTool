@@ -12,6 +12,13 @@ public static class ErrorMapper
     // the more-specific category to win.
     private static readonly Rule[] Rules =
     {
+        // Timeout — only fires when YtDlpRunner explicitly tagged the stderr with
+        // a "[timeout after Ns]" prefix. The 30s metadata fetch timeout in managed
+        // networks with no outbound youtube.com access is by far the most common cause.
+        new(ErrorCategory.NetworkError,      "E-TIMEOUT01",
+            "解析網址逾時（無法連到 YouTube）。可能原因：DNS 解析失敗、企業防火牆封鎖 *.youtube.com / *.googlevideo.com、SSL 攔截、或網路斷線。請聯絡 IT 確認可連線到 YouTube。", true,
+            new(@"\[timeout after \d+s\]", RegexOptions.Compiled)),
+
         // PO Token requirement: YouTube blocks many HTTPS formats unless the client
         // sends a Proof-of-Origin token. yt-dlp logs "...require a GVS PO Token which
         // was not provided. They will be skipped..." per skipped client. When ALL
