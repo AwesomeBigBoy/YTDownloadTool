@@ -58,7 +58,19 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
         var result = await _runner.DownloadAsync(request, processProgress, cancellationToken).ConfigureAwait(false);
 
         if (result.WasCancelled)
-            return new DownloadExecutionResult(false, null, null, true);
+        {
+            // Fix B (v1.1.8): cancellation may have been driven by the no-progress
+            // watchdog rather than the user. Forward the combined stderr+stdout-tail
+            // diagnostics on the result so DownloadQueue can attach them to the
+            // E-STUCK01 MappedError before logging. The category here is a
+            // placeholder — DownloadQueue swaps the whole MappedError when it
+            // identifies a watchdog-driven cancel.
+            MappedError? diag = null;
+            if (!string.IsNullOrEmpty(result.ErrorStderr))
+                diag = new MappedError(ErrorCategory.UnknownError, "", "E-CANCEL-DIAG",
+                    false, RawDetails: result.ErrorStderr);
+            return new DownloadExecutionResult(false, null, diag, true);
+        }
         if (!result.IsSuccess)
         {
             var mapped = ErrorMapper.Map(result.ErrorStderr ?? "");
