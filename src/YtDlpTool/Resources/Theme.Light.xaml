@@ -9,7 +9,10 @@
     <Color x:Key="Color.TextPrimary">#1A1D2E</Color>      <!-- full-opacity deep navy for max contrast on bright bg -->
     <Color x:Key="Color.TextSecondary">#995A6080</Color>  <!-- 60% slate -->
     <Color x:Key="Color.TextTertiary">#665A6080</Color>   <!-- 40% slate -->
-    <Color x:Key="Color.GlassBorder">#99FFFFFF</Color>    <!-- 60% white -->
+    <!-- 60% white was too prominent on the saturated Aurora gradient — every
+         GlassCard looked wrapped in white tape (user-reported, screenshot 2026-05-15).
+         10% gives the same "glass rim" hint without the hard outline. -->
+    <Color x:Key="Color.GlassBorder">#1AFFFFFF</Color>    <!-- 10% white -->
     <Color x:Key="Color.GlassFill">#E0FFFFFF</Color>      <!-- 88% white — crisp cards over bright gradient -->
     <Color x:Key="Color.AuroraA">#FF5A8F</Color>          <!-- vivid hot pink -->
     <Color x:Key="Color.AuroraB">#FFA940</Color>          <!-- vivid orange-peach -->
