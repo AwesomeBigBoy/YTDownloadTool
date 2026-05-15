@@ -271,15 +271,27 @@ public sealed class YtDlpRunner
         // v1.1.23: TTY mode means we cannot parse `[download]` progress lines
         // from stdout. The pre-determined output template tells us where
         // yt-dlp wrote the final file: scan the save directory for matches.
+        // Filter: the final media file is `<stem>.<single-ext>` — anything with
+        // more dots in the suffix (e.g. `.info.json`, `.en.vtt`, `.mp4.args`)
+        // or known yt-dlp scratch extensions (.part, .ytdl) is sidecar / temp,
+        // not the file we just produced for the user.
         string? finalPath = null;
         try
         {
             if (Directory.Exists(request.SaveDirectory))
             {
-                finalPath = Directory.GetFiles(request.SaveDirectory, request.SanitizedFileStem + ".*")
-                    .FirstOrDefault(p => !p.EndsWith(".info.json", StringComparison.OrdinalIgnoreCase)
-                                      && !p.EndsWith(".part",      StringComparison.OrdinalIgnoreCase)
-                                      && !p.EndsWith(".ytdl",      StringComparison.OrdinalIgnoreCase));
+                var stem = request.SanitizedFileStem;
+                finalPath = Directory.GetFiles(request.SaveDirectory, stem + ".*")
+                    .FirstOrDefault(p =>
+                    {
+                        var name = Path.GetFileName(p);
+                        if (!name.StartsWith(stem + ".", StringComparison.OrdinalIgnoreCase)) return false;
+                        var suffix = name.Substring(stem.Length + 1);
+                        if (suffix.Contains('.')) return false; // .info.json, .en.vtt, .mp4.args
+                        if (suffix.Equals("part", StringComparison.OrdinalIgnoreCase)) return false;
+                        if (suffix.Equals("ytdl", StringComparison.OrdinalIgnoreCase)) return false;
+                        return true;
+                    });
             }
         }
         catch { /* best-effort */ }
