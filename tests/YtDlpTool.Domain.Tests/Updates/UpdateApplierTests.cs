@@ -27,6 +27,8 @@ public class UpdateApplierTests : IDisposable
 
         public Task<GitHubReleaseDto?> GetLatestReleaseAsync(string o, string r, CancellationToken ct) =>
             Task.FromResult<GitHubReleaseDto?>(null);
+        public Task<IReadOnlyList<GitHubReleaseDto>> GetRecentReleasesAsync(string o, string r, int limit, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<GitHubReleaseDto>>(Array.Empty<GitHubReleaseDto>());
         public Task<string> GetStringAsync(string url, CancellationToken ct) =>
             Task.FromResult(Strings[url]);
         public async Task DownloadAsync(string url, string dest, IProgress<double>? p, CancellationToken ct)
