@@ -21,4 +21,14 @@ public sealed record ProcessStartArguments(
     // (which IS Microsoft-signed and trusted by most endpoint security software) makes
     // yt-dlp's immediate parent a trusted process, which on some AV engines
     // is enough to skip behavior heuristics.
-    bool WrapInCmdShell = false);
+    bool WrapInCmdShell = false,
+    // v1.1.23: when true, ProcessSandbox does NOT redirect stdout / stderr / stdin
+    // and forces CreateNoWindow=false. The child gets a real console window with
+    // genuine TTY stdio handles. This is the fix for the managed environment
+    // failure mode where endpoint security software Web Reputation drops the network
+    // payload of any process whose stdout is a pipe (the typical "headless
+    // malware" pattern) but allows the same binary when its stdout is a real
+    // console. Cost: visible console flash for ~1-2 s per spawn; we lose the
+    // pipe-based output capture, so callers must arrange for yt-dlp to write
+    // its results to a file via --write-info-json / --output instead of stdout.
+    bool NoIoRedirection = false);
