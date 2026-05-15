@@ -148,7 +148,11 @@ public sealed class YtDlpRunner
             "--output",
             BuildOutputTemplate(request),
         });
-        argList.AddRange(BuildSubtitleArgs(request));
+        // v1.1.13: subtitle download moved to DownloadSubtitlesOnlyAsync. The
+        // media-only invocation NEVER passes --write-subs because doing so
+        // changes the YouTube player_response path yt-dlp follows for the media
+        // URL (heavier, JS-obfuscated, easily rate-limited). Subs land via a
+        // separate yt-dlp --skip-download call and are muxed locally by ffmpeg.
         argList.AddRange(BuildFfmpegLocationArgs());
         AddSystemProxyArgs(argList);
         if (request.EmbedThumbnail) argList.Add("--embed-thumbnail");
@@ -213,21 +217,75 @@ public sealed class YtDlpRunner
     private static string InferAudioFormat(VideoFormat f) =>
         (f.Extension is "m4a" or "mp4") ? "m4a" : "mp3";
 
-    private static IEnumerable<string> BuildSubtitleArgs(DownloadRequest r)
+    /// <summary>
+    /// v1.1.13: downloads subtitle sidecar files in a STANDALONE yt-dlp
+    /// invocation (--skip-download). Bundling --write-subs with the media
+    /// download triggers a heavier YouTube extractor path that returns
+    /// JS-obfuscated media URLs; without a JavaScript runtime installed the
+    /// media download then rate-limits and fails. Splitting the two phases
+    /// keeps each invocation simple — one downloads media, the other downloads
+    /// subs — and never the twain shall meet.
+    ///
+    /// Returns the list of .vtt/.srt files yt-dlp actually wrote to disk so
+    /// the caller can feed them into ffmpeg-mux. On failure the method does
+    /// not throw — it returns IsSuccess=false with a diagnostic blob; the
+    /// caller can decide to continue without subs (best-effort) or surface
+    /// the error.
+    /// </summary>
+    public async Task<SubtitleDownloadResult> DownloadSubtitlesOnlyAsync(
+        string url,
+        IReadOnlyList<string> languageCodes,
+        string saveDirectory,
+        string sanitizedFileStem,
+        CancellationToken cancellationToken = default)
     {
-        if (r.Mode == DownloadMode.AudioOnly) yield break;
-        if (r.SubtitleLanguageCodes.Count == 0) yield break;
-        // When clipping, skip subtitles entirely. The downloaded subs are full-length
-        // and would be mistimed relative to the ffmpeg-cut output. The executor's
-        // two-pass clip path already passes SubtitleLanguageCodes = [] so this guard
-        // is mostly defensive; it stays in place because DownloadRequest still
-        // exposes ClipRange for direct (non-executor) callers (e.g. legacy tests).
-        if (r.ClipRange is not null) yield break;
-        yield return "--write-subs";
-        yield return "--write-auto-subs";
-        yield return "--sub-langs";
-        yield return string.Join(',', r.SubtitleLanguageCodes);
-        yield return "--embed-subs";
+        if (languageCodes.Count == 0)
+            return new SubtitleDownloadResult(true, Array.Empty<string>(), null);
+
+        var argList = new List<string>
+        {
+            "--skip-download",
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-langs", string.Join(',', languageCodes),
+            "--no-playlist",
+            "--retries", "3",
+            "--retry-sleep", "3",
+            "--output", Path.Combine(saveDirectory, sanitizedFileStem + ".%(ext)s"),
+        };
+        argList.AddRange(BuildFfmpegLocationArgs());
+        AddSystemProxyArgs(argList);
+        argList.Add("--");
+        argList.Add(url);
+
+        var args = new ProcessStartArguments(
+            ExecutablePath: _executable,
+            Arguments: argList,
+            Timeout: TimeSpan.FromMinutes(2));
+
+        var exit = await ProcessSandbox.RunAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (exit.ExitCode != 0)
+            return new SubtitleDownloadResult(false, Array.Empty<string>(), BuildDiagnostics(exit));
+
+        // Discover what yt-dlp actually wrote. yt-dlp may serve fewer (or different)
+        // language tags than requested when a language has only auto-captions; rely
+        // on the file system as the source of truth rather than echoing the input.
+        var files = new List<string>();
+        try
+        {
+            if (Directory.Exists(saveDirectory))
+            {
+                files.AddRange(Directory.GetFiles(saveDirectory, sanitizedFileStem + ".*.vtt"));
+                files.AddRange(Directory.GetFiles(saveDirectory, sanitizedFileStem + ".*.srt"));
+                files.Sort(StringComparer.Ordinal);
+            }
+        }
+        catch
+        {
+            // best-effort discovery; treat as no files found
+        }
+
+        return new SubtitleDownloadResult(true, files, null);
     }
 
     /// <summary>

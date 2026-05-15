@@ -49,6 +49,41 @@ if (argList.Contains("--dump-single-json"))
     return 0;
 }
 
+// Simulated subtitle-only download (--skip-download + --write-subs). Writes
+// one .vtt sidecar per requested language and drops a sibling .args log so
+// tests can assert on the argv composition.
+if (argList.Contains("--skip-download") && argList.Contains("--write-subs"))
+{
+    var subOutIdx = argList.IndexOf("--output");
+    var subOutTemplate = subOutIdx >= 0 ? argList[subOutIdx + 1] : "fake-subs.%(ext)s";
+    var langIdx = argList.IndexOf("--sub-langs");
+    var langs = (langIdx >= 0 && langIdx + 1 < argList.Count)
+        ? argList[langIdx + 1].Split(',', StringSplitOptions.RemoveEmptyEntries)
+        : Array.Empty<string>();
+
+    // yt-dlp's --output uses %(ext)s; for subs the ext is the subtitle file
+    // extension. Mimic the actual naming pattern: <stem>.<lang>.vtt.
+    // The template here will be "<dir>/<stem>.%(ext)s" — convert to
+    // "<dir>/<stem>.<lang>.vtt" for each language.
+    var stemPath = subOutTemplate.Replace(".%(ext)s", "", StringComparison.OrdinalIgnoreCase);
+    var stemDir = Path.GetDirectoryName(stemPath) ?? ".";
+    if (!Directory.Exists(stemDir)) Directory.CreateDirectory(stemDir);
+    var writtenSubs = new List<string>();
+    foreach (var lang in langs)
+    {
+        var path = stemPath + "." + lang + ".vtt";
+        await File.WriteAllTextAsync(path,
+            "WEBVTT\n\n00:00:00.000 --> 00:00:05.000\nFake subtitle for " + lang + "\n");
+        writtenSubs.Add(path);
+    }
+
+    // Side-channel args log next to the first sub (or in stemDir if no langs).
+    var argsLog = (writtenSubs.Count > 0 ? writtenSubs[0] : Path.Combine(stemDir, "fake-subs"))
+        + ".args";
+    await File.WriteAllLinesAsync(argsLog, args);
+    return 0;
+}
+
 // Simulated download — emit progress-template style lines.
 var outIdx = argList.IndexOf("--output");
 var outputPath = outIdx >= 0 ? argList[outIdx + 1] : "fake-output.mp4";
