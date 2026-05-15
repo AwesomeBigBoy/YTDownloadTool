@@ -115,9 +115,10 @@ public sealed class YtDlpRunner
             "--retries", "3",
             "--fragment-retries", "3",
             "--retry-sleep", "3",
-            // ARCHITECTURAL COMMITMENT (v1.1.11): we deliberately do NOT pass
-            // --extractor-args player_client=... here, even though it was tempting
-            // to hard-code a client list for known PO Token / JS-runtime fallbacks.
+            // ARCHITECTURAL COMMITMENT (v1.1.11, refined v1.1.12): we deliberately
+            // do NOT pass --extractor-args player_client=... here, even though it
+            // was tempting to hard-code a client list for known PO Token /
+            // JS-runtime fallbacks.
             //
             // Reasoning: yt-dlp's default client selection logic evolves with each
             // release to handle YouTube's changing PO Token / signature mechanism.
@@ -130,14 +131,24 @@ public sealed class YtDlpRunner
             // 繼續使用" — the in-app 設定→進階→重新下載元件 button is sufficient
             // to recover from any future YouTube extractor change.
             //
+            // v1.1.12 follow-up: clip extraction is NO LONGER yt-dlp's job. We do
+            // a two-pass download (full file via yt-dlp, then trim via ffmpeg)
+            // because yt-dlp's --download-sections requires a JavaScript runtime
+            // (deno/node) to deobfuscate the section URL on current YouTube
+            // videos — without one the section download hangs silently for
+            // minutes while the full download path still works fine. ffmpeg
+            // alone can stream-copy a sub-range losslessly, so the section
+            // logic is removed here entirely and the executor sequences the
+            // two passes itself.
+            //
             // The only yt-dlp behaviour we own is: output template, progress
             // parsing, retry resilience, ffmpeg location, proxy injection,
-            // subtitle/clip/thumbnail toggles. Everything else is yt-dlp's call.
+            // subtitle/thumbnail toggles. Clip is ffmpeg's job. Everything
+            // else is yt-dlp's call.
             "--output",
             BuildOutputTemplate(request),
         });
         argList.AddRange(BuildSubtitleArgs(request));
-        argList.AddRange(BuildClipArgs(request));
         argList.AddRange(BuildFfmpegLocationArgs());
         AddSystemProxyArgs(argList);
         if (request.EmbedThumbnail) argList.Add("--embed-thumbnail");
@@ -206,33 +217,17 @@ public sealed class YtDlpRunner
     {
         if (r.Mode == DownloadMode.AudioOnly) yield break;
         if (r.SubtitleLanguageCodes.Count == 0) yield break;
-        // When clipping, skip subtitles entirely. yt-dlp downloads subtitles for the
-        // full-length video and tries to embed them into the trimmed media, producing
-        // mistimed captions. The extra subtitle download also seems to push us over
-        // YouTube's rate-limit threshold mid-section more often than without.
-        // If the user wants subtitles on a clip, they can clip first then re-download
-        // with subtitles only on the full video.
+        // When clipping, skip subtitles entirely. The downloaded subs are full-length
+        // and would be mistimed relative to the ffmpeg-cut output. The executor's
+        // two-pass clip path already passes SubtitleLanguageCodes = [] so this guard
+        // is mostly defensive; it stays in place because DownloadRequest still
+        // exposes ClipRange for direct (non-executor) callers (e.g. legacy tests).
         if (r.ClipRange is not null) yield break;
         yield return "--write-subs";
         yield return "--write-auto-subs";
         yield return "--sub-langs";
         yield return string.Join(',', r.SubtitleLanguageCodes);
         yield return "--embed-subs";
-    }
-
-    // Internal-visible so tests in YtDlpTool.Process.Tests can assert the arg list
-    // shape for both video and audio clip modes (Fix 9 / v1.1.6 clip-success fix).
-    internal static IEnumerable<string> BuildClipArgs(DownloadRequest r)
-    {
-        if (r.ClipRange is null) yield break;
-        yield return "--download-sections";
-        yield return r.ClipRange.ToYtDlpFormat();
-        // --force-keyframes-at-cuts removed (v1.1.6): it required a re-encode around
-        // the cut points which silently failed on many format combinations, leaving
-        // only sidecar files (.vtt / .jpg / .webp) next to a missing media file while
-        // yt-dlp still exited 0. The cut may land on the nearest keyframe instead of
-        // the exact second, but the file actually gets produced. Frame-precise
-        // cutting is deferred to a future version.
     }
 
     /// <summary>

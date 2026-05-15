@@ -68,7 +68,7 @@ public sealed class AppHost : IDisposable
             owner: "AwesomeBigBoy", repo: "YTDownloadTool", logger: Logger);
         UpdateApplier = new UpdateApplier(UpdateHttp, sigstoreOpts, Paths, Logger);
 
-        var executor = new YtDlpDownloadExecutor(YtDlp);
+        var executor = new YtDlpDownloadExecutor(YtDlp, Ffmpeg, Logger);
         var journaledOnEvent = JournaledQueue.Wrap(StateJournal, OnQueueEvent);
         Queue = new DownloadQueue(executor, Config.ConcurrentDownloads, journaledOnEvent, Logger);
 
