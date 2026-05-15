@@ -115,19 +115,24 @@ public sealed class YtDlpRunner
             "--retries", "3",
             "--fragment-retries", "3",
             "--retry-sleep", "3",
-            // Force yt-dlp to try multiple YouTube player clients in order. The default
-            // 'web' client now requires JavaScript signature deobfuscation (the warning
-            // "No supported JavaScript runtime could be found" in clip logs is from
-            // this). 'android' and 'ios' clients return stream URLs that don't need JS
-            // deobfuscation and work without a deno install. yt-dlp tries each client
-            // until one yields usable formats — fixes the clip-stuck-at-Destination bug.
-            // YouTube's PO Token (Proof-of-Origin) requirement now blocks the default
-            // android/ios/web HTTPS streams for many videos ("android client https
-            // formats require a GVS PO Token which was not provided"). tv_simply,
-            // mweb, and web_safari clients have looser requirements and usually
-            // return playable URLs without a token. yt-dlp tries each client in
-            // order until one yields downloadable formats.
-            "--extractor-args", "youtube:player_client=tv_simply,mweb,web_safari,android,ios,web",
+            // ARCHITECTURAL COMMITMENT (v1.1.11): we deliberately do NOT pass
+            // --extractor-args player_client=... here, even though it was tempting
+            // to hard-code a client list for known PO Token / JS-runtime fallbacks.
+            //
+            // Reasoning: yt-dlp's default client selection logic evolves with each
+            // release to handle YouTube's changing PO Token / signature mechanism.
+            // Hard-coding our own client list freezes us against whatever YouTube
+            // did when the list was written; once YouTube tightens those specific
+            // clients (as observed in v1.1.10 where all 6 we'd picked started
+            // failing), the app stops working and ONLY a code change rescues it.
+            //
+            // By delegating to yt-dlp's defaults, "用戶端只需更新 yt-dlp 即可
+            // 繼續使用" — the in-app 設定→進階→重新下載元件 button is sufficient
+            // to recover from any future YouTube extractor change.
+            //
+            // The only yt-dlp behaviour we own is: output template, progress
+            // parsing, retry resilience, ffmpeg location, proxy injection,
+            // subtitle/clip/thumbnail toggles. Everything else is yt-dlp's call.
             "--output",
             BuildOutputTemplate(request),
         });
