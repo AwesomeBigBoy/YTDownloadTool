@@ -41,15 +41,15 @@
                     <Ellipse Width="20" Height="20" Margin="0,0,8,0">
                         <Ellipse.Fill>
                             <LinearGradientBrush>
-                                <GradientStop Color="{StaticResource Color.AuroraA}" Offset="0" />
-                                <GradientStop Color="{StaticResource Color.AuroraB}" Offset="0.5" />
-                                <GradientStop Color="{StaticResource Color.AuroraC}" Offset="1" />
+                                <GradientStop Color="{DynamicResource Color.AuroraA}" Offset="0" />
+                                <GradientStop Color="{DynamicResource Color.AuroraB}" Offset="0.5" />
+                                <GradientStop Color="{DynamicResource Color.AuroraC}" Offset="1" />
                             </LinearGradientBrush>
                         </Ellipse.Fill>
                     </Ellipse>
                     <TextBlock Text="{StaticResource App.Name}"
                                FontSize="16" FontWeight="SemiBold"
-                               Foreground="{StaticResource Brush.TextPrimary}"
+                               Foreground="{DynamicResource Brush.TextPrimary}"
                                VerticalAlignment="Center" />
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal">

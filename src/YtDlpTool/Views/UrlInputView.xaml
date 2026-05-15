@@ -21,7 +21,7 @@
                            Grid.Column="0"
                            Text="{StaticResource Url.Placeholder}"
                            IsHitTestVisible="False"
-                           Foreground="{StaticResource Brush.TextTertiary}"
+                           Foreground="{DynamicResource Brush.TextTertiary}"
                            Padding="0,6,8,6"
                            VerticalAlignment="Center" />
                 <Button x:Name="PasteButton"
@@ -39,12 +39,12 @@
 
             <TextBlock x:Name="ErrorLabel"
                        Margin="0,8,0,0"
-                       Foreground="{StaticResource Brush.Danger}"
+                       Foreground="{DynamicResource Brush.Danger}"
                        Visibility="Collapsed" />
 
             <TextBlock x:Name="FirstHint"
                        Margin="0,12,0,0"
-                       Foreground="{StaticResource Brush.TextTertiary}"
+                       Foreground="{DynamicResource Brush.TextTertiary}"
                        FontSize="12"
                        Visibility="Collapsed"
                        Text="{StaticResource Hint.FirstParse}" />
@@ -54,7 +54,7 @@
                     Margin="0,16,0,0"
                     Visibility="Collapsed"
                     Background="#33FFFFFF"
-                    BorderBrush="{StaticResource Brush.GlassBorder}"
+                    BorderBrush="{DynamicResource Brush.GlassBorder}"
                     BorderThickness="1"
                     CornerRadius="10"
                     Padding="10">
@@ -68,10 +68,10 @@
                     <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                         <TextBlock x:Name="MetaTitle"
                                    FontWeight="SemiBold" FontSize="14"
-                                   Foreground="{StaticResource Brush.TextPrimary}"
+                                   Foreground="{DynamicResource Brush.TextPrimary}"
                                    TextTrimming="CharacterEllipsis" />
                         <TextBlock Margin="0,4,0,0"
-                                   Foreground="{StaticResource Brush.TextSecondary}">
+                                   Foreground="{DynamicResource Brush.TextSecondary}">
                             <Run x:Name="MetaChannel" />
                             <Run Text=" · " />
                             <Run x:Name="MetaDuration" FontFamily="{StaticResource Font.Numeric}" />

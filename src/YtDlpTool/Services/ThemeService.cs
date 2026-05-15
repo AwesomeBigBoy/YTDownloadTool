@@ -11,6 +11,8 @@ public sealed class ThemeService
 
     public ThemeService(Application app) => _app = app;
 
+    private ResourceDictionary? _currentPalette;
+
     public void Apply(ThemePreference pref)
     {
         var dark = pref switch
@@ -19,33 +21,49 @@ public sealed class ThemeService
             ThemePreference.Light => false,
             _ => DetectSystemPrefersDark()
         };
-        var path = dark ? "/Resources/Theme.Dark.xaml" : "/Resources/Theme.Light.xaml";
-        var uri = new System.Uri(path, System.UriKind.Relative);
-        var newDict = (ResourceDictionary)Application.LoadComponent(uri);
+        var uri = new System.Uri(
+            dark ? "/Resources/Theme.Dark.xaml" : "/Resources/Theme.Light.xaml",
+            System.UriKind.Relative);
+
+        // Use the ctor that sets Source explicitly. Application.LoadComponent does NOT
+        // preserve Source on the returned dictionary, which broke subsequent toggle
+        // attempts (the "find by Source.Contains" pass below would never match the
+        // previously-inserted dictionary again).
+        var newDict = new ResourceDictionary { Source = uri };
 
         var dicts = _app.Resources.MergedDictionaries;
-        // Find the existing palette dictionary (Theme.Light or Theme.Dark) and replace it
-        // at the same index so the merged-dictionary lookup order is preserved.
-        var existingIndex = -1;
-        for (int i = 0; i < dicts.Count; i++)
+        var insertIndex = -1;
+
+        // Prefer removing OUR previously-tracked palette (handles repeated toggles cleanly).
+        if (_currentPalette is not null)
         {
-            var src = dicts[i].Source?.OriginalString ?? "";
-            if (src.Contains("Theme.Light") || src.Contains("Theme.Dark"))
+            var idx = dicts.IndexOf(_currentPalette);
+            if (idx >= 0)
             {
-                existingIndex = i;
-                break;
+                insertIndex = idx;
+                dicts.RemoveAt(idx);
             }
         }
-        if (existingIndex >= 0)
+
+        // First-call path (no tracked palette yet) — strip the default Theme.Light/Dark
+        // that App.xaml loaded at startup.
+        if (insertIndex < 0)
         {
-            dicts.RemoveAt(existingIndex);
-            dicts.Insert(existingIndex, newDict);
+            for (int i = 0; i < dicts.Count; i++)
+            {
+                var src = dicts[i].Source?.OriginalString ?? "";
+                if (src.Contains("Theme.Light") || src.Contains("Theme.Dark"))
+                {
+                    insertIndex = i;
+                    dicts.RemoveAt(i);
+                    break;
+                }
+            }
         }
-        else
-        {
-            // No palette dictionary found — insert at front so Theme.xaml can find brushes.
-            dicts.Insert(0, newDict);
-        }
+
+        if (insertIndex < 0) insertIndex = 0;
+        dicts.Insert(insertIndex, newDict);
+        _currentPalette = newDict;
     }
 
     private static bool DetectSystemPrefersDark()

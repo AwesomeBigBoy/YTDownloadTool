@@ -8,7 +8,7 @@
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{StaticResource Advanced.Title}" FontWeight="SemiBold" />
                     <TextBlock Margin="8,0,0,0"
-                               Foreground="{StaticResource Brush.TextTertiary}"
+                               Foreground="{DynamicResource Brush.TextTertiary}"
                                Text="{StaticResource Advanced.Hint}" />
                 </StackPanel>
             </Expander.Header>
@@ -18,7 +18,7 @@
                     <StackPanel>
                         <TextBlock Text="{StaticResource Advanced.SubtitlesLabel}"
                                    FontSize="12"
-                                   Foreground="{StaticResource Brush.TextSecondary}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}"
                                    Margin="0,0,0,4" />
                         <ItemsControl x:Name="SubtitlesList">
                             <ItemsControl.ItemsPanel>
@@ -33,7 +33,7 @@
                 <!-- Clip -->
                 <TextBlock Text="{StaticResource Advanced.ClipLabel}"
                            FontSize="12"
-                           Foreground="{StaticResource Brush.TextSecondary}"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
                            Margin="0,16,0,4" />
                 <StackPanel Orientation="Horizontal">
                     <CheckBox x:Name="ClipEnabled" Content="{StaticResource Advanced.ClipLabel}"
@@ -46,7 +46,7 @@
                 </StackPanel>
                 <TextBlock x:Name="ClipError"
                            Margin="0,4,0,0"
-                           Foreground="{StaticResource Brush.Danger}"
+                           Foreground="{DynamicResource Brush.Danger}"
                            Visibility="Collapsed" />
             </StackPanel>
         </Expander>

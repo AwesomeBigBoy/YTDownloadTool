@@ -9,13 +9,13 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="{StaticResource Save.Label}"
-                       Foreground="{StaticResource Brush.TextSecondary}"
+                       Foreground="{DynamicResource Brush.TextSecondary}"
                        FontSize="12" VerticalAlignment="Center" />
             <TextBlock Grid.Column="1" x:Name="PathLabel"
                        Margin="12,0,0,0"
                        TextTrimming="CharacterEllipsis"
                        VerticalAlignment="Center"
-                       Foreground="{StaticResource Brush.TextPrimary}"
+                       Foreground="{DynamicResource Brush.TextPrimary}"
                        ToolTip="{Binding ElementName=PathLabel, Path=Text}" />
             <Button Grid.Column="2"
                     Style="{StaticResource LinkButton}"
