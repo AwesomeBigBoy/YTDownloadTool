@@ -102,31 +102,30 @@ public sealed class YtDlpRunner
         string url,
         CancellationToken cancellationToken = default)
     {
-        // v1.1.23: TTY mode — see ProcessStartArguments.NoIoRedirection. yt-dlp
-        // writes the metadata JSON to a file instead of stdout, because endpoint security software
-        // endpoint security software on managed hosts drops the application-layer payload for
-        // processes with redirected stdout (heuristic: "headless = malware-like").
-        // Direct CMD invocation works because cmd gives yt-dlp a real TTY.
-        var infoDir = Path.Combine(Path.GetTempPath(), "ytdlptool-meta-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(infoDir);
-        var outputTemplate = Path.Combine(infoDir, "%(id)s");
+        // v1.1.27: back to v1.1.16 pipe-based stdout capture (the managed-network
+        // failure was IPv6 not stdout redirection; --force-ipv4 in
+        // BuildCommonCliArgs is the actual fix). Layered on top:
+        //   --write-thumbnail + --output <tmpdir>/<id>  → yt-dlp writes the
+        //     thumbnail jpg/webp next to the same temp dir we control. The
+        //     image is then copied to a persistent cache directory and a
+        //     file:// URI substituted into VideoMetadata.ThumbnailUrl. The
+        //     UI loader recognises file:// and reads from disk, avoiding an
+        //     HttpClient call to i.ytimg.com that the user's environment was
+        //     blocking.
+        var thumbDir = Path.Combine(Path.GetTempPath(), "ytdlptool-meta-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(thumbDir);
+        var outputTemplate = Path.Combine(thumbDir, "%(id)s");
 
         try
         {
             var fetchArgs = new List<string>
             {
+                "--dump-single-json",
                 "--skip-download",
-                "--write-info-json",
-                // v1.1.25: also have yt-dlp pull the thumbnail. Our app's HttpClient
-                // can't reliably reach i.ytimg.com on managed hosts (same Apex
-                // One Web Reputation block that hit the JSON fetch — only our
-                // app's process is filtered; yt-dlp's TTY-mode invocation is not).
-                // Routing the thumbnail through yt-dlp gets us a local jpg/webp
-                // file we can load from disk without any HTTP from our process.
                 "--write-thumbnail",
+                "--output", outputTemplate,
                 "--no-playlist",
                 "--no-warnings",
-                "--output", outputTemplate,
             };
             fetchArgs.AddRange(BuildCommonCliArgs());
             if (_allowUntrustedCerts) fetchArgs.Add("--no-check-certificates");
@@ -138,37 +137,25 @@ public sealed class YtDlpRunner
             var args = new ProcessStartArguments(
                 ExecutablePath: _executable,
                 Arguments: fetchArgs,
-                // Bumped from 30s — without stdout we can't see early-output ms,
-                // and the visible console adds a small startup cost.
-                Timeout: TimeSpan.FromSeconds(60),
-                ExtraEnv: extraEnv,
-                NoIoRedirection: true);
+                Timeout: TimeSpan.FromSeconds(30),
+                ExtraEnv: extraEnv);
 
             LogInvokeBegin("metadata", fetchArgs, url, extraEnv);
-            var exit = await ProcessSandbox.RunAsync(args, cancellationToken: cancellationToken);
+            var stdoutLines = new List<string>();
+            var exit = await ProcessSandbox.RunAsync(args,
+                onStdout: line => stdoutLines.Add(line.Text),
+                cancellationToken: cancellationToken);
             LogInvokeEnd("metadata", exit);
 
-            // In TTY mode we can't read stdout/stderr — the only signal of
-            // success is the .info.json file appearing on disk.
-            var jsonFiles = Directory.GetFiles(infoDir, "*.info.json");
-            if (jsonFiles.Length == 0)
+            if (exit.ExitCode != 0 || exit.TimedOut || exit.Cancelled)
             {
-                var marker = exit.TimedOut ? "[timeout after 60s]" :
-                             exit.Cancelled ? "[cancelled]" :
-                             $"[exit {exit.ExitCode}]";
-                return new MetadataFetchResult(false, null, marker + " no .info.json produced — yt-dlp likely blocked or failed silently");
+                var diag = BuildDiagnostics(exit);
+                if (exit.TimedOut) diag = "[timeout after 30s]\n" + diag;
+                else if (exit.Cancelled) diag = "[cancelled]\n" + diag;
+                return new MetadataFetchResult(false, null, diag);
             }
 
-            string raw;
-            try
-            {
-                raw = await File.ReadAllTextAsync(jsonFiles[0], cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                return new MetadataFetchResult(false, null, "failed to read .info.json: " + ex.Message);
-            }
-
+            var raw = string.Join('\n', stdoutLines);
             YtDlpMetadataDto? dto;
             try
             {
@@ -182,17 +169,12 @@ public sealed class YtDlpRunner
             if (dto is null || string.IsNullOrEmpty(dto.Id) || string.IsNullOrEmpty(dto.Title))
                 return new MetadataFetchResult(false, null, "missing fields");
 
-            // v1.1.25: copy the yt-dlp-downloaded thumbnail into a persistent
-            // cache dir and substitute the local path into ThumbnailUrl. The
-            // InMemoryThumbnailLoader detects file:// URLs and reads from disk
-            // instead of issuing an HttpClient request our app would not be
-            // able to complete on managed hosts.
-            var thumbLocal = TryCopyThumbnailToCache(infoDir, dto.Id);
+            var thumbLocal = TryCopyThumbnailToCache(thumbDir, dto.Id);
             return new MetadataFetchResult(true, MapToMetadata(dto, thumbLocal), null);
         }
         finally
         {
-            try { Directory.Delete(infoDir, recursive: true); } catch { /* best-effort cleanup */ }
+            try { Directory.Delete(thumbDir, recursive: true); } catch { /* best-effort cleanup */ }
         }
     }
 
@@ -332,50 +314,17 @@ public sealed class YtDlpRunner
         var args = new ProcessStartArguments(
             ExecutablePath: _executable,
             Arguments: argList,
-            ExtraEnv: extraEnv,
-            NoIoRedirection: true);
+            ExtraEnv: extraEnv);
 
         LogInvokeBegin("download", argList, request.Url, extraEnv);
-        var exit = await ProcessSandbox.RunAsync(args, cancellationToken: cancellationToken);
+        string? finalPath = null;
+        var exit = await ProcessSandbox.RunAsync(args,
+            onStdout: line => ParseProgress(line.Text, progress, ref finalPath),
+            cancellationToken: cancellationToken);
         LogInvokeEnd("download", exit);
 
-        // v1.1.23: TTY mode means we cannot parse `[download]` progress lines
-        // from stdout. The pre-determined output template tells us where
-        // yt-dlp wrote the final file: scan the save directory for matches.
-        // Filter: the final media file is `<stem>.<single-ext>` — anything with
-        // more dots in the suffix (e.g. `.info.json`, `.en.vtt`, `.mp4.args`)
-        // or known yt-dlp scratch extensions (.part, .ytdl) is sidecar / temp,
-        // not the file we just produced for the user.
-        string? finalPath = null;
-        try
-        {
-            if (Directory.Exists(request.SaveDirectory))
-            {
-                var stem = request.SanitizedFileStem;
-                finalPath = Directory.GetFiles(request.SaveDirectory, stem + ".*")
-                    .FirstOrDefault(p =>
-                    {
-                        var name = Path.GetFileName(p);
-                        if (!name.StartsWith(stem + ".", StringComparison.OrdinalIgnoreCase)) return false;
-                        var suffix = name.Substring(stem.Length + 1);
-                        if (suffix.Contains('.')) return false; // .info.json, .en.vtt, .mp4.args
-                        if (suffix.Equals("part", StringComparison.OrdinalIgnoreCase)) return false;
-                        if (suffix.Equals("ytdl", StringComparison.OrdinalIgnoreCase)) return false;
-                        return true;
-                    });
-            }
-        }
-        catch { /* best-effort */ }
-
-        if (exit.Cancelled) return new DownloadResult(false, null, "[cancelled]", true);
-        if (exit.ExitCode != 0)
-        {
-            var marker = exit.TimedOut ? "[timeout]" : $"[exit {exit.ExitCode}]";
-            return new DownloadResult(false, null, marker + " — yt-dlp ran in TTY mode; check the console flash for diagnostics or look for *.info.json in TEMP", false);
-        }
-        if (finalPath is null)
-            return new DownloadResult(false, null, "yt-dlp exited cleanly but produced no output file (likely deleted by AV between completion and our scan)", false);
-
+        if (exit.Cancelled) return new DownloadResult(false, null, BuildDiagnostics(exit), true);
+        if (exit.ExitCode != 0) return new DownloadResult(false, null, BuildDiagnostics(exit), false);
         return new DownloadResult(true, finalPath, null, false);
     }
 
@@ -470,17 +419,13 @@ public sealed class YtDlpRunner
             ExecutablePath: _executable,
             Arguments: argList,
             Timeout: TimeSpan.FromMinutes(2),
-            ExtraEnv: extraEnv,
-            NoIoRedirection: true);
+            ExtraEnv: extraEnv);
 
         LogInvokeBegin("subtitles", argList, url, extraEnv);
         var exit = await ProcessSandbox.RunAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
         LogInvokeEnd("subtitles", exit);
         if (exit.ExitCode != 0)
-        {
-            var marker = exit.TimedOut ? "[timeout]" : exit.Cancelled ? "[cancelled]" : $"[exit {exit.ExitCode}]";
-            return new SubtitleDownloadResult(false, Array.Empty<string>(), marker);
-        }
+            return new SubtitleDownloadResult(false, Array.Empty<string>(), BuildDiagnostics(exit));
 
         // Discover what yt-dlp actually wrote. yt-dlp may serve fewer (or different)
         // language tags than requested when a language has only auto-captions; rely
