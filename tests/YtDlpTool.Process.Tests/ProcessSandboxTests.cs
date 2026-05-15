@@ -45,6 +45,22 @@ public class ProcessSandboxTests
     }
 
     [Fact]
+    public async Task Run_NonExistentExe_ReturnsFriendlyError()
+    {
+        // Fix B: AppLocker / WDAC / AV quarantine can make Process.Start throw a
+        // Win32Exception. The sandbox should swallow that and surface the diagnostic
+        // through ProcessExitInfo.Stderr so ErrorMapper can map it cleanly.
+        var args = new ProcessStartArguments(
+            ExecutablePath: @"C:\path\that\does\not\exist\nope.exe",
+            Arguments: Array.Empty<string>());
+        var result = await ProcessSandbox.RunAsync(args);
+        Assert.Equal(-1, result.ExitCode);
+        Assert.False(result.TimedOut);
+        Assert.False(result.Cancelled);
+        Assert.Contains("找不到可執行檔", result.Stderr);
+    }
+
+    [Fact]
     public async Task Run_EnvironmentIsWhitelisted()
     {
         // Set a variable in our process that should NOT propagate to the child.
