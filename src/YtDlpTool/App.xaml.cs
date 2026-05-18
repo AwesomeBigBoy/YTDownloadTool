@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using YtDlpTool.Services;
 
 namespace YtDlpTool;
@@ -48,31 +50,7 @@ public partial class App : Application
             Host = new AppHost();
             WriteEarlyDiag("startup.apphost.created", null);
 
-            // White-UI on a single machine workaround: if Config.ForceSoftwareRendering
-            // is true (set by user editing config.json), bypass GPU rendering entirely.
-            // Some managed / RDP-session / older-Intel-iGPU machines render the WPF
-            // visual tree as blank in hardware mode despite WPF reporting Tier > 0.
-            if (Host.Config.ForceSoftwareRendering)
-            {
-                RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
-                WriteEarlyDiag("render.mode", new Dictionary<string,string> { ["mode"] = "software-forced" });
-                Host.Logger.Info("render.mode", new Dictionary<string,string> { ["mode"] = "software-forced" });
-            }
-            else if ((RenderCapability.Tier >> 16) == 0)
-            {
-                // WPF itself reports no hardware acceleration — auto-fall-back.
-                RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
-                WriteEarlyDiag("render.mode", new Dictionary<string,string> { ["mode"] = "software-auto" });
-                Host.Logger.Info("render.mode", new Dictionary<string,string> { ["mode"] = "software-auto" });
-            }
-            else
-            {
-                Host.Logger.Info("render.mode", new Dictionary<string,string>
-                {
-                    ["mode"] = "hardware",
-                    ["tier"] = (RenderCapability.Tier >> 16).ToString()
-                });
-            }
+            ApplyRenderMode(Host);
 
             ThemeService = new ThemeService(this);
             ThemeService.Apply(Host.Config.Theme);
@@ -102,6 +80,122 @@ public partial class App : Application
 
         WriteEarlyDiag("startup.complete", null);
         _ = Host!.StartBackgroundUpdateCheckAsync(_appShutdown.Token);
+    }
+
+    // Render-mode fallback chain — fixes the "white window of doom" on Intel HD/UHD
+    // iGPUs (and other machines where WPF hardware rendering produces a blank visual
+    // tree despite RenderCapability.Tier reporting > 0). Priority highest → lowest:
+    //   1. config.json ForceSoftwareRendering=true (explicit user opt-in)
+    //   2. env var YTDLPTOOL_FORCE_SOFTWARE=1 (GPO/batch-deployable)
+    //   3. software-render.flag file next to exe (one-touch user workaround, no JSON)
+    //   4. RenderCapability.Tier == 0 (WPF itself reports no acceleration)
+    //   5. GPU name matches known-bad regex (Intel HD/UHD Graphics ≈ Skylake–Raptor)
+    //   6. otherwise: leave hardware rendering on
+    private void ApplyRenderMode(AppHost host)
+    {
+        var gpuNames = DetectGpuNames();
+        var gpuFields = new Dictionary<string, string>
+        {
+            ["count"] = gpuNames.Length.ToString(),
+            ["names"] = gpuNames.Length == 0 ? "(none)" : string.Join(" | ", gpuNames),
+        };
+        WriteEarlyDiag("gpu.detected", gpuFields);
+        host.Logger.Info("gpu.detected", gpuFields);
+
+        var flagFile = Path.Combine(AppContext.BaseDirectory, "software-render.flag");
+        var envForce = Environment.GetEnvironmentVariable("YTDLPTOOL_FORCE_SOFTWARE");
+        var envForcesSoftware = !string.IsNullOrEmpty(envForce)
+            && (envForce == "1" || envForce.Equals("true", StringComparison.OrdinalIgnoreCase));
+
+        string reason;
+        string? matchedGpu = null;
+        if (host.Config.ForceSoftwareRendering)
+        {
+            reason = "user-config";
+        }
+        else if (envForcesSoftware)
+        {
+            reason = "env-var";
+        }
+        else if (File.Exists(flagFile))
+        {
+            reason = "flag-file";
+        }
+        else if ((RenderCapability.Tier >> 16) == 0)
+        {
+            reason = "tier0";
+        }
+        else if (TryMatchKnownBadGpu(gpuNames, out matchedGpu))
+        {
+            reason = "known-bad-gpu";
+        }
+        else
+        {
+            reason = "hardware";
+        }
+
+        if (reason != "hardware")
+        {
+            RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
+        }
+
+        var renderFields = new Dictionary<string, string>
+        {
+            ["mode"]   = reason == "hardware" ? "hardware" : "software",
+            ["reason"] = reason,
+            ["tier"]   = (RenderCapability.Tier >> 16).ToString(),
+        };
+        if (matchedGpu is not null) renderFields["matched_gpu"] = matchedGpu;
+        WriteEarlyDiag("render.mode", renderFields);
+        host.Logger.Info("render.mode", renderFields);
+    }
+
+    // GPU name regex: Intel HD/UHD Graphics 5XX/6XX/7XX/8XX (Skylake → Raptor Lake).
+    // Deliberately excludes Intel Iris Xe / Arc (those don't have the WPF white-window
+    // bug) and all NVIDIA/AMD parts. Matches "Intel(R) HD Graphics 630", "Intel(R) UHD
+    // Graphics", "Intel(R) UHD Graphics 770" etc.
+    private static readonly Regex KnownBadGpuRegex = new(
+        @"^Intel\b.*\b(HD|UHD)\s*Graphics\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static bool TryMatchKnownBadGpu(IReadOnlyList<string> names, out string? matched)
+    {
+        foreach (var n in names)
+        {
+            if (KnownBadGpuRegex.IsMatch(n))
+            {
+                matched = n;
+                return true;
+            }
+        }
+        matched = null;
+        return false;
+    }
+
+    // Read GPU adapter names from the Windows registry instead of WMI to avoid pulling
+    // in System.Management (extra package, slow first-call). Each child key under the
+    // display-adapter class GUID is a 4-digit index whose DriverDesc is the vendor name.
+    private static string[] DetectGpuNames()
+    {
+        try
+        {
+            using var root = Registry.LocalMachine.OpenSubKey(
+                @"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}");
+            if (root is null) return Array.Empty<string>();
+            var names = new List<string>();
+            foreach (var subName in root.GetSubKeyNames())
+            {
+                if (subName.Length != 4 || !subName.All(char.IsDigit)) continue;
+                using var sub = root.OpenSubKey(subName);
+                if (sub?.GetValue("DriverDesc") is string desc && !string.IsNullOrWhiteSpace(desc))
+                    names.Add(desc);
+            }
+            return names.ToArray();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
     }
 
     private void WriteEarlyDiag(string category, Dictionary<string,string>? fields)
