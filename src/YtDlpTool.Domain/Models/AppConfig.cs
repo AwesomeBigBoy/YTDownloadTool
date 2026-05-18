@@ -4,9 +4,17 @@ public sealed class AppConfig
 {
     public int ConcurrentDownloads { get; set; } = 2;
     public string DefaultSaveDirectory { get; set; } = "";
-    public UpdateCheckFrequency YtDlpCheckFrequency { get; set; } = UpdateCheckFrequency.Weekly;
-    public UpdateCheckFrequency FfmpegCheckFrequency { get; set; } = UpdateCheckFrequency.Weekly;
-    public UpdateCheckFrequency AppCheckFrequency { get; set; } = UpdateCheckFrequency.Weekly;
+    // v1.2.2: app + component check frequencies bumped Weekly → EveryLaunch so users
+    // see new releases the first time they open the app. The check still happens in
+    // the background ~5s after launch (StartBackgroundUpdateCheckAsync) so UI isn't
+    // blocked, and the manifest is Sigstore-verified before any banner appears, so
+    // there's no security cost to checking more often. Existing installs with
+    // config.json keep whatever was previously stored — only new installs get this
+    // default. Users on the old default who want every-launch can change it in
+    // Settings → 更新.
+    public UpdateCheckFrequency YtDlpCheckFrequency { get; set; } = UpdateCheckFrequency.EveryLaunch;
+    public UpdateCheckFrequency FfmpegCheckFrequency { get; set; } = UpdateCheckFrequency.EveryLaunch;
+    public UpdateCheckFrequency AppCheckFrequency { get; set; } = UpdateCheckFrequency.EveryLaunch;
     public ThemePreference Theme { get; set; } = ThemePreference.System;
     public string LanguageCode { get; set; } = "zh-TW";
     public DateTimeOffset? LastYtDlpCheck { get; set; }

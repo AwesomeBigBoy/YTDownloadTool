@@ -64,6 +64,8 @@ public sealed class AppHost : IDisposable
             ["LogLevel"]                   = Config.LogLevel,
         });
 
+        CleanupStaleUpdateArtifacts();
+
         // Generate a CA bundle from Windows' trust store and inject it into yt-dlp.
         // This is THE fix for managed environments with SSL inspection: yt-dlp's bundled
         // Python certifi doesn't know about the site-installed CA installed via GPO into
@@ -164,6 +166,56 @@ public sealed class AppHost : IDisposable
     private static string ThisVersion() =>
         System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0";
 
+    // v1.2.2: delete leftover *.old files on startup. UpdateApplier renames the live
+    // YtDlpTool.exe to YtDlpTool.exe.old before dropping the new one in place. On
+    // Windows you CAN rename a running exe (the file handle tracks the inode, not
+    // the path) but you CANNOT delete it while it's still open. UpdateApplier's
+    // post-apply File.Delete therefore always fails silently for the running exe,
+    // and the .old file was left around forever. Now the NEW process — launched
+    // after the user restarts — does the cleanup, because by that point the old
+    // process has released its handle. Best-effort: a Defender quarantine or AV
+    // scanning the .old file briefly could still block deletion; in that case the
+    // next launch tries again.
+    private void CleanupStaleUpdateArtifacts()
+    {
+        try
+        {
+            var dirs = new[] { Paths.AppDirectory, Paths.BinDirectory };
+            var deleted = 0;
+            var failed = 0;
+            foreach (var dir in dirs)
+            {
+                if (!Directory.Exists(dir)) continue;
+                foreach (var oldFile in Directory.EnumerateFiles(dir, "*.old", SearchOption.TopDirectoryOnly))
+                {
+                    try
+                    {
+                        File.Delete(oldFile);
+                        deleted++;
+                    }
+                    catch (Exception ex)
+                    {
+                        failed++;
+                        Logger.Warn("update.cleanup.stale_failed", new Dictionary<string, string>
+                        {
+                            ["path"]  = oldFile,
+                            ["error"] = ex.Message,
+                        });
+                    }
+                }
+            }
+            if (deleted > 0 || failed > 0)
+            {
+                Logger.Info("update.cleanup.stale", new Dictionary<string, string>
+                {
+                    ["deleted"] = deleted.ToString(),
+                    ["failed"]  = failed.ToString(),
+                });
+            }
+        }
+        catch { /* best-effort, never throw at startup */ }
+    }
+
     /// <summary>
     /// Probes installed yt-dlp and ffmpeg versions plus this app's version. Used by both the
     /// background update check and the Settings dialog's manual "check now" / "redownload components"
@@ -178,8 +230,12 @@ public sealed class AppHost : IDisposable
 
     public async Task StartBackgroundUpdateCheckAsync(CancellationToken ct)
     {
-        // Wait 60 seconds after startup before first check (spec 4.3).
-        try { await Task.Delay(TimeSpan.FromSeconds(60), ct).ConfigureAwait(false); }
+        // Wait 5 seconds after startup before first check. Was 60s in v1.0–v1.2.1
+        // when the default cadence was Weekly and the long delay made sense. v1.2.2
+        // bumped AppCheckFrequency default to EveryLaunch, so a 60s delay would mean
+        // short sessions never even see the banner. 5s is enough for the WPF first
+        // frame + theme apply to settle without competing for network/CPU.
+        try { await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false); }
         catch (TaskCanceledException) { return; }
 
         if (!ShouldCheckNow(Config)) return;
