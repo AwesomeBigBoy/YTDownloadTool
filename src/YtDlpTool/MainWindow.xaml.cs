@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
 using YtDlpTool.Interop;
@@ -25,6 +26,14 @@ public partial class MainWindow : Window
         DataContext = ViewModel;
         UpdateBanner.DataContext = host.BannerVm;
         Activated += (_, _) => UrlInput.RefreshPasteHint();
+
+        // v1.2.3: surface the version in two places (taskbar title + header label) so
+        // user bug reports always carry the build identifier. release.yml sets
+        // AssemblyInformationalVersion at build time from the git tag (e.g. "1.2.3");
+        // dev builds report "0.0.0" because the csproj has no <Version> element.
+        var version = GetAppVersion();
+        VersionLabel.Text = "v" + version;
+        Title = $"YtDlpTool v{version}";
 
         var interrupted = host.ReadAndClearInterruptedJobs();
         if (interrupted.Count > 0)
@@ -96,6 +105,22 @@ public partial class MainWindow : Window
             ViewModel.Host.Queue.Cancel(item.Id);
         }
     });
+
+    // v1.2.3: Pulls AssemblyInformationalVersion (set by release.yml from the git tag,
+    // e.g. "1.2.3") rather than AssemblyVersion (which is always padded to 4 segments,
+    // "1.2.3.0"). Falls back to "0.0.0" for dev builds where the csproj has no <Version>.
+    internal static string GetAppVersion()
+    {
+        var info = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(info))
+        {
+            // Strip the SourceRevisionId suffix that the SDK appends (e.g. "1.2.3+abc123").
+            var plus = info.IndexOf('+');
+            return plus > 0 ? info[..plus] : info;
+        }
+        return Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
+    }
 
     private sealed class RelayCommandAdapter : ICommand
     {

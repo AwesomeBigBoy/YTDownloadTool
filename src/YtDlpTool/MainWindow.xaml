@@ -63,6 +63,17 @@
                                FontSize="16" FontWeight="SemiBold"
                                Foreground="White"
                                VerticalAlignment="Center" />
+                    <!-- v1.2.3: visible version label so bug reports can be tied to a
+                         specific build. Sits inline with the app name; appears in every
+                         screenshot a user sends. Populated in MainWindow.OnLoaded from
+                         AssemblyInformationalVersionAttribute (set by release.yml at
+                         build time from the git tag). -->
+                    <TextBlock x:Name="VersionLabel"
+                               FontSize="13"
+                               Foreground="#CCFFFFFF"
+                               VerticalAlignment="Center"
+                               Margin="8,2,0,0"
+                               Text="" />
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Button x:Name="OpenFolderButton"
