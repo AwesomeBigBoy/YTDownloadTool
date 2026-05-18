@@ -4,7 +4,7 @@
     "_comment_v1.3.0": "v1.3.0+ builds yt-dlp.exe from upstream source via build/build-patched-ytdlp.ps1 instead of downloading the prebuilt binary. The runtime hook in build/yt-dlp-patch/ lowers OpenSSL SECLEVEL when the env var YTDLP_RELAX_SECLEVEL=1 is set; otherwise yt-dlp behaves identically to upstream. See build/yt-dlp-patch/README.md for the audit trail.",
     "upstream_repo": "https://github.com/yt-dlp/yt-dlp",
     "upstream_tag": "2026.03.17",
-    "upstream_source_zip_sha256": "TO_BE_FILLED_AT_FIRST_BUILD",
+    "upstream_source_zip_sha256": "f5b3dfe472c673a98d023ff555ea8a7a72323512bf9073f29a23495d858b7230",
     "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.03.17/yt-dlp.exe",
     "sha256": "3db811b366b2da47337d2fcfdfe5bbd9a258dad3f350c54974f005df115a1545"
   },
