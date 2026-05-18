@@ -109,17 +109,25 @@ public sealed class YtDlpRunner
             env["REQUESTS_CA_BUNDLE"] = _caBundlePath!;
             env["CURL_CA_BUNDLE"]     = _caBundlePath!;
         }
-        // v1.2.4: when the user has opted in to AllowUntrustedCertificates, ALSO point
-        // yt-dlp's bundled OpenSSL at a permissive config that drops SECLEVEL to 0.
-        // --no-check-certificates alone only flips Python's verify_mode to CERT_NONE,
-        // which is too late — OpenSSL's SECLEVEL check happens during the TLS handshake
-        // and rejects "EE certificate key too weak" before Python's verify callback
-        // gets a say. Setting OPENSSL_CONF=<our cnf> with CipherString=DEFAULT@SECLEVEL=0
-        // tells the bundled libssl/libcrypto to accept weaker keys at the handshake
-        // layer, so the connection actually completes.
+        // v1.2.4: OPENSSL_CONF env var. Set only when the user opted in to
+        // AllowUntrustedCertificates. Python's bundled OpenSSL ignores this by
+        // default (compiled with OPENSSL_INIT_NO_LOAD_CONFIG), so it's a no-op
+        // on the upstream yt-dlp.exe. Kept as defence in depth for future Python
+        // builds that might honour it.
         if (hasOpensslConf)
         {
             env["OPENSSL_CONF"] = _opensslConfPath!;
+        }
+        // v1.3.0: activate the runtime hook baked into our patched yt-dlp.exe.
+        // The hook checks for YTDLP_RELAX_SECLEVEL=1 at Python startup and
+        // monkey-patches ssl.SSLContext.__init__ to call
+        // set_ciphers('DEFAULT@SECLEVEL=0'), which allows TLS handshakes to
+        // complete with leaf certificates whose key sizes the default would
+        // reject. Cert-chain + hostname validation still run normally.
+        // See build/yt-dlp-patch/ for the patch source + audit trail.
+        if (_allowUntrustedCerts)
+        {
+            env["YTDLP_RELAX_SECLEVEL"] = "1";
         }
         return env;
     }
