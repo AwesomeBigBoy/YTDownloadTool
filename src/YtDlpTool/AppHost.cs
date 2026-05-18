@@ -47,6 +47,23 @@ public sealed class AppHost : IDisposable
             () => DateTime.Now);
         AppLogger.PurgeOlderThan(Paths.LogsDirectory, TimeSpan.FromDays(7), DateTime.Now);
 
+        // v1.2.1: log which config path was actually loaded so we can diagnose path-
+        // resolution bugs (e.g. when AppPaths.TestWritable trips on EDR-protected
+        // folders and silently routes to %LOCALAPPDATA% instead of the install dir).
+        Logger.Info("config.path", new Dictionary<string, string>
+        {
+            ["path"]   = Paths.ConfigFile,
+            ["exists"] = File.Exists(Paths.ConfigFile).ToString(),
+            ["root"]   = Paths.DataRoot,
+        });
+        Logger.Info("config.loaded", new Dictionary<string, string>
+        {
+            ["ForceSoftwareRendering"]     = Config.ForceSoftwareRendering.ToString(),
+            ["AllowUntrustedCertificates"] = Config.AllowUntrustedCertificates.ToString(),
+            ["Theme"]                      = Config.Theme.ToString(),
+            ["LogLevel"]                   = Config.LogLevel,
+        });
+
         // Generate a CA bundle from Windows' trust store and inject it into yt-dlp.
         // This is THE fix for managed environments with SSL inspection: yt-dlp's bundled
         // Python certifi doesn't know about the site-installed CA installed via GPO into
