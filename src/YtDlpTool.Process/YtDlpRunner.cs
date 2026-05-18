@@ -160,13 +160,14 @@ public sealed class YtDlpRunner
                 "--no-warnings",
             };
             fetchArgs.AddRange(BuildCommonCliArgs());
-            // v1.2.4: stopped adding --no-check-certificates here. The OPENSSL_CONF
-            // env var injected by BuildExtraEnv lowers SECLEVEL=0 (allows weak-key
-            // leaf certs), but cert-chain + hostname validation still runs against
-            // the system trust store (corporate CA pulled in via system-ca-bundle).
-            // This is safer than the previous full --no-check-certificates: an
-            // attacker on an untrusted network still can't MITM unless they hold a
-            // cert signed by something the user trusts.
+            // v1.2.5: re-added --no-check-certificates after v1.2.4 (Option B, OPENSSL_CONF
+            // SECLEVEL=0 only) failed in testing. Root cause: Python ssl module is
+            // built with OPENSSL_INIT_NO_LOAD_CONFIG since 3.8, so OPENSSL_CONF env var
+            // is ignored. SECLEVEL stays at 1, weak-key certs rejected at handshake.
+            // OPENSSL_CONF is still set by BuildExtraEnv as a best-effort no-op (some
+            // OpenSSL builds do load it; harmless on the ones that don't). The actual
+            // bypass is --no-check-certificates here.
+            if (_allowUntrustedCerts) fetchArgs.Add("--no-check-certificates");
             AddSystemProxyArgs(fetchArgs);
             fetchArgs.Add("--");
             fetchArgs.Add(url);
@@ -462,9 +463,8 @@ public sealed class YtDlpRunner
         argList.AddRange(BuildCommonCliArgs());
         argList.AddRange(BuildFfmpegLocationArgs());
         AddSystemProxyArgs(argList);
-        // v1.2.4: --no-check-certificates removed (see FetchMetadataAsync for rationale).
-        // OPENSSL_CONF in BuildExtraEnv does the SECLEVEL=0 part while keeping cert
-        // chain validation active.
+        // v1.2.5: re-added --no-check-certificates (see FetchMetadataAsync for rationale).
+        if (_allowUntrustedCerts) argList.Add("--no-check-certificates");
         argList.Add("--");
         argList.Add(url);
 
