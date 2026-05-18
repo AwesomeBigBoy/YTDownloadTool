@@ -9,13 +9,15 @@ public sealed class YtDlpRunner
     private readonly string _executable;
     private readonly bool _allowUntrustedCerts;
     private readonly string? _caBundlePath;
+    private readonly string? _opensslConfPath;
     private readonly AppLogger? _logger;
 
-    public YtDlpRunner(string executable, bool allowUntrustedCerts = false, string? caBundlePath = null, AppLogger? logger = null)
+    public YtDlpRunner(string executable, bool allowUntrustedCerts = false, string? caBundlePath = null, string? opensslConfPath = null, AppLogger? logger = null)
     {
         _executable = executable;
         _allowUntrustedCerts = allowUntrustedCerts;
         _caBundlePath = caBundlePath;
+        _opensslConfPath = opensslConfPath;
         _logger = logger;
     }
 
@@ -62,6 +64,10 @@ public sealed class YtDlpRunner
             ["arg_count"]     = arguments.Count.ToString(),
             ["url_hash"]      = urlForHashing is null ? "" : AppLogger.HashSuffix(urlForHashing),
             ["extra_env"]     = extraEnv is null ? "" : string.Join(',', extraEnv.Keys),
+            // v1.2.4: field meaning changed from "did we add --no-check-certificates"
+            // (legacy) to "did we relax HTTPS strictness via OPENSSL_CONF SECLEVEL=0"
+            // (current). Both come from the same AllowUntrustedCertificates config
+            // flag, so log continuity is preserved.
             ["allow_no_cert"] = _allowUntrustedCerts ? "true" : "false",
         });
     }
@@ -89,13 +95,33 @@ public sealed class YtDlpRunner
     // sees the site-installed CA without any code knowing which one matters.
     private IReadOnlyDictionary<string, string>? BuildExtraEnv()
     {
-        if (string.IsNullOrEmpty(_caBundlePath) || !File.Exists(_caBundlePath)) return null;
-        return new Dictionary<string, string>
+        var hasCaBundle    = !string.IsNullOrEmpty(_caBundlePath) && File.Exists(_caBundlePath);
+        var hasOpensslConf = _allowUntrustedCerts
+            && !string.IsNullOrEmpty(_opensslConfPath)
+            && File.Exists(_opensslConfPath);
+
+        if (!hasCaBundle && !hasOpensslConf) return null;
+
+        var env = new Dictionary<string, string>();
+        if (hasCaBundle)
         {
-            ["SSL_CERT_FILE"] = _caBundlePath,
-            ["REQUESTS_CA_BUNDLE"] = _caBundlePath,
-            ["CURL_CA_BUNDLE"] = _caBundlePath,
-        };
+            env["SSL_CERT_FILE"]      = _caBundlePath!;
+            env["REQUESTS_CA_BUNDLE"] = _caBundlePath!;
+            env["CURL_CA_BUNDLE"]     = _caBundlePath!;
+        }
+        // v1.2.4: when the user has opted in to AllowUntrustedCertificates, ALSO point
+        // yt-dlp's bundled OpenSSL at a permissive config that drops SECLEVEL to 0.
+        // --no-check-certificates alone only flips Python's verify_mode to CERT_NONE,
+        // which is too late — OpenSSL's SECLEVEL check happens during the TLS handshake
+        // and rejects "EE certificate key too weak" before Python's verify callback
+        // gets a say. Setting OPENSSL_CONF=<our cnf> with CipherString=DEFAULT@SECLEVEL=0
+        // tells the bundled libssl/libcrypto to accept weaker keys at the handshake
+        // layer, so the connection actually completes.
+        if (hasOpensslConf)
+        {
+            env["OPENSSL_CONF"] = _opensslConfPath!;
+        }
+        return env;
     }
 
     public async Task<MetadataFetchResult> FetchMetadataAsync(
@@ -134,7 +160,13 @@ public sealed class YtDlpRunner
                 "--no-warnings",
             };
             fetchArgs.AddRange(BuildCommonCliArgs());
-            if (_allowUntrustedCerts) fetchArgs.Add("--no-check-certificates");
+            // v1.2.4: stopped adding --no-check-certificates here. The OPENSSL_CONF
+            // env var injected by BuildExtraEnv lowers SECLEVEL=0 (allows weak-key
+            // leaf certs), but cert-chain + hostname validation still runs against
+            // the system trust store (corporate CA pulled in via system-ca-bundle).
+            // This is safer than the previous full --no-check-certificates: an
+            // attacker on an untrusted network still can't MITM unless they hold a
+            // cert signed by something the user trusts.
             AddSystemProxyArgs(fetchArgs);
             fetchArgs.Add("--");
             fetchArgs.Add(url);
@@ -430,7 +462,9 @@ public sealed class YtDlpRunner
         argList.AddRange(BuildCommonCliArgs());
         argList.AddRange(BuildFfmpegLocationArgs());
         AddSystemProxyArgs(argList);
-        if (_allowUntrustedCerts) argList.Add("--no-check-certificates");
+        // v1.2.4: --no-check-certificates removed (see FetchMetadataAsync for rationale).
+        // OPENSSL_CONF in BuildExtraEnv does the SECLEVEL=0 part while keeping cert
+        // chain validation active.
         argList.Add("--");
         argList.Add(url);
 

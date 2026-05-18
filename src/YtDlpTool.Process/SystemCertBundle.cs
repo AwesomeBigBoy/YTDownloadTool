@@ -48,6 +48,41 @@ public static class SystemCertBundle
         }
     }
 
+    /// <summary>
+    /// v1.2.4: writes a minimal OpenSSL config that lowers SECLEVEL to 0. yt-dlp's
+    /// bundled OpenSSL reads it when launched with OPENSSL_CONF pointing here, which
+    /// makes the TLS handshake accept weaker keys (e.g. legacy-key-size leaf certs that
+    /// some SSL-inspection proxies generate). Best-effort: returns true if the file
+    /// exists at <paramref name="outputPath"/> after the call.
+    /// </summary>
+    public static bool WritePermissiveOpensslConf(string outputPath)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            // ASCII keeps it portable across the bundled OpenSSL parsers; trailing
+            // newline matters for some libssl builds.
+            const string content =
+                "openssl_conf = default_conf\n" +
+                "\n" +
+                "[default_conf]\n" +
+                "ssl_conf = ssl_sect\n" +
+                "\n" +
+                "[ssl_sect]\n" +
+                "system_default = system_default_sect\n" +
+                "\n" +
+                "[system_default_sect]\n" +
+                "CipherString = DEFAULT@SECLEVEL=0\n";
+            File.WriteAllText(outputPath, content, Encoding.ASCII);
+            return File.Exists(outputPath);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static void AppendStore(StringBuilder sb, StoreName name, StoreLocation location)
     {
         try

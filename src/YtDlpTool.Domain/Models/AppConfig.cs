@@ -30,12 +30,23 @@ public sealed class AppConfig
     // relaunch.
     public bool ForceSoftwareRendering { get; set; } = false;
 
-    // Emergency fallback for managed environments where SystemCertBundle-based trust
-    // doesn't fix SSL handshake (e.g., the SSL-inspection CA isn't in any Windows
-    // root store, or IT installs it only in the user store of a non-current user).
-    // When true, yt-dlp gets --no-check-certificates. SECURITY TRADEOFF: yt-dlp
-    // will accept ANY HTTPS certificate without verification, so a hostile network
-    // could MITM the YouTube traffic. Default false; document as IT-supported toggle.
+    // Fallback for networks whose HTTPS inspection produces leaf certificates with
+    // weak keys (< 2048-bit RSA), which OpenSSL's default SECLEVEL=1 rejects during
+    // the TLS handshake before any Python-level validation runs.
+    //
+    // v1.2.4 behaviour: when true, yt-dlp's bundled OpenSSL receives an OPENSSL_CONF
+    // env var pointing at a config that sets CipherString=DEFAULT@SECLEVEL=0. This
+    // ALLOWS WEAK KEYS at the handshake layer, but CERT-CHAIN + HOSTNAME VALIDATION
+    // STILL RUNS against the system trust store (corporate CA pulled in via
+    // SystemCertBundle). So an attacker on an untrusted network can't MITM unless
+    // they hold a cert signed by something the local trust store accepts.
+    //
+    // Pre-v1.2.4 behaviour was --no-check-certificates (full bypass — accepts ANY
+    // cert from anyone). If reports show v1.2.4's SECLEVEL-only fallback
+    // isn't enough (e.g., corporate CA not actually deployed to Windows root
+    // store), we may add a second flag for the legacy full bypass.
+    //
+    // Default false. Should only be enabled on networks the user trusts.
     public bool AllowUntrustedCertificates { get; set; } = false;
 
     public static AppConfig CreateDefault()
