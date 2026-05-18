@@ -35,6 +35,7 @@ public partial class SettingsDialog : Window
         EnableYtDlpUpdates.IsChecked = _host.Config.YtDlpCheckFrequency != UpdateCheckFrequency.Never;
         EnableFfmpegUpdates.IsChecked = _host.Config.FfmpegCheckFrequency != UpdateCheckFrequency.Never;
         SelectComboTag(ThemeCombo, _host.Config.Theme.ToString());
+        AllowUntrustedCertificatesCheckbox.IsChecked = _host.Config.AllowUntrustedCertificates;
     }
 
     private static void SelectComboTag(ComboBox combo, string tag)
@@ -91,10 +92,22 @@ public partial class SettingsDialog : Window
         cfg.YtDlpCheckFrequency = EnableYtDlpUpdates.IsChecked == true ? UpdateCheckFrequency.Weekly : UpdateCheckFrequency.Never;
         cfg.FfmpegCheckFrequency = EnableFfmpegUpdates.IsChecked == true ? UpdateCheckFrequency.Weekly : UpdateCheckFrequency.Never;
         cfg.Theme = ParseTheme(ThemeCombo);
+        // v1.2.4: AllowUntrustedCertificates is read at YtDlpRunner construction time
+        // (which happens in AppHost ctor at startup). Toggling here writes to disk but
+        // won't affect the running app until restart. The description text below the
+        // checkbox warns the user about this.
+        var requireRestart = cfg.AllowUntrustedCertificates != (AllowUntrustedCertificatesCheckbox.IsChecked == true);
+        cfg.AllowUntrustedCertificates = AllowUntrustedCertificatesCheckbox.IsChecked == true;
         _host.ConfigStore.Save(cfg);
         ((App)Application.Current).ThemeService.Apply(cfg.Theme);
         DialogResult = true;
         Close();
+        if (requireRestart)
+        {
+            MessageBox.Show(
+                "「允許不受信任憑證」設定已儲存，需重新啟動程式後生效。",
+                "YtDlpTool", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
     }
 
     private static UpdateCheckFrequency ParseFrequency(ComboBox c) =>
