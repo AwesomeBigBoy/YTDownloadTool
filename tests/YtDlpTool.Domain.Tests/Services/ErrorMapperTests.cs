@@ -92,29 +92,47 @@ public class ErrorMapperTests
     [Fact]
     public void Map_AppLockerBlock_ReturnsBlockedMessage()
     {
-        // Fix C: ProcessSandbox (Fix B) bubbles up a friendly hint when AppLocker /
-        // WDAC blocks the child binary. ErrorMapper should bucket it as
-        // ComponentMissing with code E-BLOCK01 and a whitelist instruction.
+        // ProcessSandbox bubbles up a friendly hint when AppLocker / WDAC blocks
+        // the child binary. ErrorMapper buckets it as ComponentMissing with code
+        // E-BLOCK01. v1.3.2: copy neutralised — "白名單" / "請聯絡 IT" wording
+        // replaced with self-help phrasing.
         const string stderr = "Process.Start failed: AppLocker 群組原則拒絕執行此程式 — Some Win32 detail";
         var r = ErrorMapper.Map(stderr);
         Assert.Equal(ErrorCategory.ComponentMissing, r.Category);
         Assert.Equal("E-BLOCK01", r.ErrorCode);
-        Assert.Contains("白名單", r.UserMessage);
+        Assert.Contains("系統政策", r.UserMessage);
     }
 
     [Fact]
     public void Map_SslFailure_ReturnsSslMessage()
     {
-        // Fix C: HTTPS inspection / TLS interception surfaces as a
-        // CERTIFICATE_VERIFY_FAILED line. We want a dedicated E-SSL01 with a
-        // proxy hint instead of dumping the raw traceback on the user.
+        // CERTIFICATE_VERIFY_FAILED maps to E-SSL01 with a hint pointing at the
+        // AllowUntrustedCertificates setting (v1.3.2 wording — was "企業 SSL 攔截"
+        // before, neutralised).
         const string stderr =
             "[youtube] abc123: Downloading webpage\n" +
             "ssl.SSLCertVerificationError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self signed certificate in certificate chain (_ssl.c:1129)\n";
         var r = ErrorMapper.Map(stderr);
         Assert.Equal(ErrorCategory.NetworkError, r.Category);
         Assert.Equal("E-SSL01", r.ErrorCode);
-        Assert.Contains("SSL", r.UserMessage);
+        Assert.Contains("憑證驗證失敗", r.UserMessage);
+    }
+
+    [Fact]
+    public void Map_EeCertificateKeyTooWeak_ReturnsE_SSL02()
+    {
+        // v1.3.2 re-added the EE-key-too-weak rule (originally introduced in
+        // v1.2.4 then accidentally reverted in v1.3.0's checkout). Must fire
+        // BEFORE the generic SSL pattern.
+        const string stderr =
+            "ERROR: [youtube] abc123: Unable to download API page: " +
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: " +
+            "EE certificate key too weak (_ssl.c:1007)";
+        var r = ErrorMapper.Map(stderr);
+        Assert.Equal(ErrorCategory.NetworkError, r.Category);
+        Assert.Equal("E-SSL02", r.ErrorCode);
+        Assert.Contains("金鑰長度過短", r.UserMessage);
+        Assert.Contains("允許不受信任憑證", r.UserMessage);
     }
 
     [Fact]

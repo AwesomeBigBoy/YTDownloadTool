@@ -186,10 +186,18 @@ public partial class MainViewModel : ObservableObject
 
     private QueueItemViewModel? Find(Guid id) => Queue.FirstOrDefault(q => q.Id == id);
 
-    // v1.3.0: SSL-related error codes that suggest the user is on a network that
-    // intercepts HTTPS — used to gate the "enable bypass + restart?" prompt.
+    // v1.3.0/1.3.2: error codes that suggest the user is on a network that
+    // intercepts/blocks HTTPS — used to gate the "enable bypass + restart?"
+    // prompt. v1.3.2 broadened from SSL-specific to also include the timeout
+    // and generic-network codes, because in inspection environments the actual
+    // SSL handshake failure often surfaces as a timeout (yt-dlp's HTTP client
+    // hangs at handshake until the timeout fires instead of returning the
+    // verify_failed error directly). Offering the bypass on these failures
+    // catches more cases at the cost of one prompt-per-session — which the
+    // user can always dismiss if they're on a clean public network.
     private static bool IsSslFailureCode(string? code) =>
-        !string.IsNullOrEmpty(code) && (code == "E-SSL01" || code == "E-SSL02");
+        code == "E-SSL01" || code == "E-SSL02" ||
+        code == "E-TIMEOUT01" || code == "E-NET001";
 
     internal static bool IsSslErrorCode(string? code) => IsSslFailureCode(code);
 

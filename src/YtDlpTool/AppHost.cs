@@ -244,10 +244,24 @@ public sealed class AppHost : IDisposable
     /// background update check and the Settings dialog's manual "check now" / "redownload components"
     /// flows so they share the exact same probe path.
     /// </summary>
-    public async Task<InstalledVersions> GetInstalledVersionsAsync() => new(
-        App: ThisVersion(),
-        YtDlp: await ProbeYtDlpVersionAsync().ConfigureAwait(false),
-        Ffmpeg: await ProbeFfmpegVersionAsync().ConfigureAwait(false));
+    public async Task<InstalledVersions> GetInstalledVersionsAsync()
+    {
+        var app    = ThisVersion();
+        var ytDlp  = await ProbeYtDlpVersionAsync().ConfigureAwait(false);
+        var ffmpeg = await ProbeFfmpegVersionAsync().ConfigureAwait(false);
+        // v1.3.2: log what each probe returned. Diagnoses persistent
+        // "update available" prompts where the installed component's --version
+        // output doesn't match the manifest's expected string (because the
+        // probe timed out, the binary is from an older release, or the build
+        // pipeline embedded a different version string).
+        Logger.Info("version.probe", new Dictionary<string, string>
+        {
+            ["app"]    = app,
+            ["ytdlp"]  = string.IsNullOrWhiteSpace(ytDlp)  ? "(probe-failed)" : ytDlp,
+            ["ffmpeg"] = string.IsNullOrWhiteSpace(ffmpeg) ? "(probe-failed)" : ffmpeg,
+        });
+        return new(App: app, YtDlp: ytDlp, Ffmpeg: ffmpeg);
+    }
 
     public UpdateBannerViewModel BannerVm { get; } = new();
 
@@ -301,13 +315,19 @@ public sealed class AppHost : IDisposable
 
     private async Task<string> ProbeYtDlpVersionAsync()
     {
-        // Probe by running `--version` through ProcessSandbox with a 5-second timeout. Best-effort.
+        // v1.3.2: bumped timeout 5s → 30s. PyInstaller-frozen yt-dlp.exe self-
+        // extracts to %TEMP% on first run and takes longer than 5s under
+        // anti-virus scanning, which made --version time out and return empty
+        // — UpdateChecker then read empty < manifest version, flagged yt-dlp
+        // as "newer available" forever, and the user got an update prompt that
+        // never went away. 30s is enough for a cold PyInstaller start on a
+        // slow disk + AV scan.
         try
         {
             var args = new ProcessStartArguments(
                 ExecutablePath: Path.Combine(Paths.BinDirectory, "yt-dlp.exe"),
                 Arguments: new[] { "--version" },
-                Timeout: TimeSpan.FromSeconds(5),
+                Timeout: TimeSpan.FromSeconds(30),
                 StdoutByteLimit: 64 * 1024);
             var output = new System.Text.StringBuilder();
             var exit = await ProcessSandbox.RunAsync(args, l => { lock (output) output.AppendLine(l.Text); }).ConfigureAwait(false);
@@ -318,12 +338,13 @@ public sealed class AppHost : IDisposable
 
     private async Task<string> ProbeFfmpegVersionAsync()
     {
+        // v1.3.2: 5s → 30s (same rationale as ProbeYtDlpVersionAsync above).
         try
         {
             var args = new ProcessStartArguments(
                 ExecutablePath: Path.Combine(Paths.BinDirectory, "ffmpeg.exe"),
                 Arguments: new[] { "-version" },
-                Timeout: TimeSpan.FromSeconds(5),
+                Timeout: TimeSpan.FromSeconds(30),
                 StdoutByteLimit: 64 * 1024);
             string? firstLine = null;
             var exit = await ProcessSandbox.RunAsync(args, l =>

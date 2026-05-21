@@ -16,6 +16,25 @@ public partial class MainWindow : Window
         InitializeComponent();
         SourceInitialized += (_, _) => WindowChromeHelper.ApplyAuroraBackdrop(this);
         Loaded += OnLoaded;
+        // v1.3.2: keep the maximize button's glyph + tooltip in sync with the
+        // window state (single square = "click to maximize", overlapping squares
+        // = "click to restore down"). Standard Windows chrome behaviour.
+        StateChanged += (_, _) => SyncMaxButtonGlyph();
+    }
+
+    private void SyncMaxButtonGlyph()
+    {
+        if (MaximizeButton is null) return;
+        if (WindowState == WindowState.Maximized)
+        {
+            MaximizeButton.Content = "❐";
+            MaximizeButton.ToolTip = "向下還原";
+        }
+        else
+        {
+            MaximizeButton.Content = "▢";
+            MaximizeButton.ToolTip = "最大化";
+        }
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -89,6 +108,26 @@ public partial class MainWindow : Window
     private void OnAddDownloadClicked(object sender, RoutedEventArgs e)
     {
         ViewModel?.AddDownloadCommand.Execute(null);
+    }
+
+    // v1.3.2: custom-chrome window control handlers. The XAML sets
+    // WindowStyle=None and draws our own minimize/maximize/close buttons in
+    // the top bar, since the OS title bar is hidden.
+    private void OnMinimizeClicked(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+    }
+
+    private void OnMaximizeClicked(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
+    }
+
+    private void OnCloseClicked(object sender, RoutedEventArgs e)
+    {
+        Close();
     }
 
     public ICommand PasteFromClipboardCommand => new RelayCommandAdapter(_ =>

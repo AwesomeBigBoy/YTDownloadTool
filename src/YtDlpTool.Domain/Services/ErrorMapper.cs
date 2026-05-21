@@ -16,7 +16,7 @@ public static class ErrorMapper
         // a "[timeout after Ns]" prefix. The 30s metadata fetch timeout in managed
         // networks with no outbound youtube.com access is by far the most common cause.
         new(ErrorCategory.NetworkError,      "E-TIMEOUT01",
-            "解析網址逾時（無法連到 YouTube）。可能原因：DNS 解析失敗、企業防火牆封鎖 *.youtube.com / *.googlevideo.com、SSL 攔截、或網路斷線。請聯絡 IT 確認可連線到 YouTube。", true,
+            "解析網址逾時（無法連到 YouTube）。可能原因：DNS 解析失敗、目前網路封鎖 *.youtube.com / *.googlevideo.com、HTTPS 設定問題、或網路斷線。可至 設定 → 進階 → 開啟「允許不受信任憑證」後重試，或改用其他網路。", true,
             new(@"\[timeout after \d+s\]", RegexOptions.Compiled)),
 
         // PO Token requirement: YouTube blocks many HTTPS formats unless the client
@@ -90,8 +90,19 @@ public static class ErrorMapper
             stderr.Contains("存取被拒", StringComparison.Ordinal))
         {
             return new MappedError(ErrorCategory.ComponentMissing,
-                "處理元件無法啟動：可能被防毒/AppLocker 阻擋。請聯絡 IT 將 YtDlpTool.exe、yt-dlp.exe、ffmpeg.exe 加入白名單，或將整個資料夾移到使用者個人目錄。",
+                "處理元件無法啟動：可能被防毒軟體或系統政策阻擋。請確認 YtDlpTool.exe、yt-dlp.exe、ffmpeg.exe 在這台機器允許執行，或將整個資料夾移到使用者個人目錄（如 Downloads 或桌面）。",
                 "E-BLOCK01", false, raw);
+        }
+
+        // v1.3.2: detect EE-key-too-weak BEFORE the generic SSL pattern; this
+        // particular failure has a more specific actionable message (point at
+        // the AllowUntrustedCertificates setting directly).
+        if (stderr.Contains("key too weak", StringComparison.OrdinalIgnoreCase) ||
+            stderr.Contains("EE certificate", StringComparison.OrdinalIgnoreCase))
+        {
+            return new MappedError(ErrorCategory.NetworkError,
+                "目前網路使用的 HTTPS 憑證金鑰長度過短，無法被安全規則接受。若你信任目前的網路環境，請至 設定 → 進階 → 開啟「允許不受信任憑證」後重試。",
+                "E-SSL02", false, raw);
         }
 
         if (stderr.Contains("certificate verify failed", StringComparison.OrdinalIgnoreCase) ||
@@ -100,7 +111,7 @@ public static class ErrorMapper
             stderr.Contains("SSL: ", StringComparison.OrdinalIgnoreCase))
         {
             return new MappedError(ErrorCategory.NetworkError,
-                "SSL 憑證驗證失敗：企業網路可能有 SSL 攔截/檢查。請聯絡 IT，或於設定→進階確認代理伺服器設定。",
+                "HTTPS 憑證驗證失敗。如果你信任目前的網路環境，可至 設定 → 進階 → 開啟「允許不受信任憑證」後重試。",
                 "E-SSL01", false, raw);
         }
 
@@ -109,7 +120,7 @@ public static class ErrorMapper
              stderr.Contains("403", StringComparison.Ordinal)))
         {
             return new MappedError(ErrorCategory.NetworkError,
-                "代理伺服器拒絕連線：企業 proxy 可能要求認證。請聯絡 IT 或於設定中手動設定 proxy。",
+                "代理伺服器拒絕連線。請至 設定 → 代理伺服器 確認設定，或改用其他網路後重試。",
                 "E-PROXY01", false, raw);
         }
 

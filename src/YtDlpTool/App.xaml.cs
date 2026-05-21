@@ -246,6 +246,26 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// Confirms the user wants to DISABLE AllowUntrustedCertificates. v1.3.2
+    /// added this because disabling also takes effect only after restart —
+    /// silently restarting without warning was startling, and users had no
+    /// last-chance-to-cancel button. Returns true if user accepted.
+    /// </summary>
+    public static bool ConfirmDisableUntrustedFromSettings()
+    {
+        var msg = "你正在關閉「允許不受信任憑證」。\n\n" +
+                  "關閉後 YtDlpTool 會恢復完整的 HTTPS 憑證驗證。在某些網路下" +
+                  "（會檢查或攔截 HTTPS 流量的環境）可能因此無法下載 YouTube — " +
+                  "如果你之後遇到下載失敗，可以再回到這個設定打開。" +
+                  "\n\n" +
+                  "確定要關閉嗎？確認後程式會自動重新啟動讓設定生效。";
+        var result = MessageBox.Show(msg,
+            "確認關閉降級驗證",
+            MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        return result == MessageBoxResult.OK;
+    }
+
+    /// <summary>
     /// Confirms the user wants to enable AllowUntrustedCertificates from the
     /// Settings dialog (different message wording than the failure-driven
     /// prompt). Returns true if user accepted; caller should then save the

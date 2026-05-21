@@ -52,24 +52,20 @@ public partial class UpdateBannerView : UserControl
         if (result.IsSuccess)
         {
             Vm.ApplyStatus = "✓ 已更新";
-            // v1.3.1: if YtDlpTool.exe itself was one of the updated files, the
-            // running process is still the OLD binary (Windows rename-while-open
-            // trick) and the user MUST restart to actually pick up the new build.
-            // Offer auto-restart.
+            // v1.3.1/v1.3.2: if YtDlpTool.exe itself was updated, force-restart.
+            // No Yes/No — the user clicked "one-click update" so they've already
+            // committed; making them choose to apply it (or stay on old binary)
+            // is bad UX.
             var appExeUpdated = entries.Any(en =>
                 string.Equals(en.Name, "YtDlpTool.exe", StringComparison.OrdinalIgnoreCase));
             if (appExeUpdated)
             {
-                var resp = MessageBox.Show(
-                    "YtDlpTool 主程式已更新完成。\n\n" +
-                    "需要重新啟動才能套用新版本。是否立刻重新啟動？",
+                MessageBox.Show(
+                    "YtDlpTool 主程式已更新完成，將立刻重新啟動套用新版本。",
                     "更新完成",
-                    MessageBoxButton.YesNo, MessageBoxImage.Information);
-                if (resp == MessageBoxResult.Yes)
-                {
-                    App.RestartApplication();
-                    return;
-                }
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                App.RestartApplication();
+                return;
             }
             await Task.Delay(1500);
             Vm.IsVisible = false;

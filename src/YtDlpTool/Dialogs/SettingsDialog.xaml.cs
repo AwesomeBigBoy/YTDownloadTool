@@ -111,14 +111,21 @@ public partial class SettingsDialog : Window
     {
         var cfg = _host.Config;
 
-        // v1.3.0: if the user is ENABLING AllowUntrustedCertificates (false → true),
-        // intercept BEFORE any save and show the full risk warning. If they cancel
-        // we revert the checkbox and return early without touching cfg.
+        // v1.3.0/1.3.2: intercept BEFORE any save when the user is toggling
+        // AllowUntrustedCertificates. Enabling shows the security risk warning;
+        // disabling shows a "this also needs restart" prompt. If the user cancels
+        // either, we revert the checkbox and return without saving.
         var newAllowUntrusted = AllowUntrustedCertificatesCheckbox.IsChecked == true;
-        var willEnableUntrusted = newAllowUntrusted && !cfg.AllowUntrustedCertificates;
+        var willEnableUntrusted  = newAllowUntrusted && !cfg.AllowUntrustedCertificates;
+        var willDisableUntrusted = !newAllowUntrusted && cfg.AllowUntrustedCertificates;
         if (willEnableUntrusted && !App.ConfirmEnableUntrustedFromSettings())
         {
             AllowUntrustedCertificatesCheckbox.IsChecked = false;
+            return;
+        }
+        if (willDisableUntrusted && !App.ConfirmDisableUntrustedFromSettings())
+        {
+            AllowUntrustedCertificatesCheckbox.IsChecked = true;
             return;
         }
 
@@ -243,26 +250,20 @@ public partial class SettingsDialog : Window
         {
             UpdateStatusText.Text = "✓ 已更新到最新版本";
             UpdateProgressBar.Value = 100;
-            // v1.3.1: if YtDlpTool.exe itself was updated, the running process is
-            // still the previous binary (Windows lets us rename a running .exe but
-            // we keep executing from our open handle). The user MUST restart to
-            // see the new version. Previously the UI just hid the status text and
-            // left users thinking the update was complete — confusing because the
-            // title bar still showed the old version. Now we offer auto-restart.
+            // v1.3.1/v1.3.2: if YtDlpTool.exe itself was updated, force-restart.
+            // The user has just opted into an update; making them click through a
+            // second prompt to actually apply it (and risk staying on the old
+            // binary if they decline) is poor UX. Notify briefly then relaunch.
             var appExeUpdated = entries.Any(e =>
                 string.Equals(e.Name, "YtDlpTool.exe", StringComparison.OrdinalIgnoreCase));
             if (appExeUpdated)
             {
-                var resp = MessageBox.Show(
-                    "YtDlpTool 主程式已更新完成。\n\n" +
-                    "需要重新啟動才能套用新版本。是否立刻重新啟動？",
+                MessageBox.Show(
+                    "YtDlpTool 主程式已更新完成，將立刻重新啟動套用新版本。",
                     "更新完成",
-                    MessageBoxButton.YesNo, MessageBoxImage.Information);
-                if (resp == MessageBoxResult.Yes)
-                {
-                    App.RestartApplication();
-                    return;
-                }
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                App.RestartApplication();
+                return;
             }
             try { await Task.Delay(2000, ct).ConfigureAwait(true); }
             catch (OperationCanceledException) { return; }
