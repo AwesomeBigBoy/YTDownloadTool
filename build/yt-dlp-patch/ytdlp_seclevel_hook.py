@@ -1,26 +1,30 @@
 # yt-dlp PyInstaller runtime hook
 #
 # Activated only when the environment variable YTDLP_RELAX_SECLEVEL=1 is set.
-# Lowers OpenSSL's per-context security level to 0 right before each TLS
-# handshake, so connections complete on networks whose HTTPS inspection
-# products present leaf certificates with key sizes that the default
-# SECLEVEL=1 would reject.
+# Two effects, both applied right before every TLS handshake via wrap_socket
+# and wrap_bio:
 #
-# Certificate chain validation and hostname verification still run; only the
-# key-strength gate at handshake time is relaxed.
+#   1. Lowers OpenSSL's per-context security level to 0 via set_ciphers
+#      ('DEFAULT@SECLEVEL=0'). Allows TLS handshakes to complete with leaf
+#      certificates whose key sizes the default SECLEVEL=1 would reject.
 #
-# When the env var is unset, this hook is a no-op and yt-dlp behaves exactly
-# like upstream.
+#   2. Disables peer-certificate verification on the context
+#      (verify_mode=CERT_NONE, check_hostname=False). v1.3.0-alpha5 added
+#      this because the host application's --no-check-certificates CLI
+#      flag passed to yt-dlp does NOT cover every code path inside yt-dlp:
+#      its InnerTube API client and certain extractor-internal HTTP calls
+#      create their own SSLContext that doesn't inherit the global
+#      nocheckcertificate setting. Patching at wrap_socket/wrap_bio is
+#      the universal choke point — every TLS connection in Python ssl
+#      goes through one of those, so doing it here covers the cases
+#      --no-check-certificates misses.
 #
-# v1.3.0-alpha2: patches wrap_socket / wrap_bio instead of __init__. The
-# alpha1 approach replaced ssl.SSLContext.__init__ with a wrapper, which
-# broke MRO for SSLContext subclasses that call super().__init__(*args,
-# **kwargs) — the args propagated all the way up to object.__init__ and
-# raised "TypeError: object.__init__() takes exactly one argument". Patching
-# wrap_socket / wrap_bio instead avoids touching the constructor entirely.
-# These methods are called right before each TLS handshake, so applying
-# set_ciphers('DEFAULT@SECLEVEL=0') here has the same effect with no
-# inheritance side effects.
+# When the env var is unset, the hook is a no-op and yt-dlp behaves exactly
+# like upstream's prebuilt binary.
+#
+# Order matters: set check_hostname=False BEFORE verify_mode=CERT_NONE,
+# because if check_hostname is True you cannot lower verify_mode to
+# CERT_NONE (Python ssl raises ValueError).
 #
 # Source location: build/yt-dlp-patch/ytdlp_seclevel_hook.py
 # Repo:            https://github.com/AwesomeBigBoy/YTDownloadTool
@@ -35,18 +39,23 @@ if os.environ.get('YTDLP_RELAX_SECLEVEL') == '1':
         _original_wrap_bio    = getattr(ssl.SSLContext, 'wrap_bio', None)
         _original_set_ciphers = ssl.SSLContext.set_ciphers
 
-        def _ensure_seclevel_0(ctx):
+        def _relax_context(ctx):
             try:
                 _original_set_ciphers(ctx, 'DEFAULT@SECLEVEL=0')
             except ssl.SSLError:
                 pass
+            try:
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+            except (AttributeError, ValueError):
+                pass
 
         def _patched_wrap_socket(self, *args, **kwargs):
-            _ensure_seclevel_0(self)
+            _relax_context(self)
             return _original_wrap_socket(self, *args, **kwargs)
 
         def _patched_wrap_bio(self, *args, **kwargs):
-            _ensure_seclevel_0(self)
+            _relax_context(self)
             return _original_wrap_bio(self, *args, **kwargs)
 
         ssl.SSLContext.wrap_socket = _patched_wrap_socket
