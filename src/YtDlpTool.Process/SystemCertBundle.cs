@@ -1,93 +1,40 @@
 using System.IO;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using YtDlpTool.Domain.Logging;
 
 namespace YtDlpTool.Process;
 
 /// <summary>
-/// Exports the Windows certificate trust store as a PEM bundle that Python's
-/// urllib (and therefore yt-dlp) can consume via SSL_CERT_FILE.
+/// Exports the Windows certificate trust store as a PEM bundle that yt-dlp's
+/// Python (urllib / requests / curl) can consume via SSL_CERT_FILE /
+/// REQUESTS_CA_BUNDLE / CURL_CA_BUNDLE.
 ///
-/// Why: managed environments commonly run an SSL-inspection proxy (an HTTPS inspection product / an HTTPS inspection product /
-/// an HTTPS inspection product / web gateway) that re-signs HTTPS traffic with an enterprise
-/// CA. That CA is installed in Windows' root store via GPO so browsers trust it —
-/// but yt-dlp's bundled Python certifi has its own CA list that doesn't include
-/// the site-installed CA, so TLS handshake fails silently and the metadata fetch hangs
-/// until our 30s timeout. Symptom: browser plays YouTube fine, CLI yt-dlp times
-/// out with empty stderr.
-///
-/// Fix: dump LocalMachine\Root + CurrentUser\Root + their CertificateAuthority
-/// counterparts into a PEM file at startup. Point SSL_CERT_FILE at it. yt-dlp's
-/// Python then trusts everything Windows trusts, including the site-installed CA.
+/// Narrowed in v1.2.6 to read only CurrentUser\Trusted Root Certification
+/// Authorities — previous versions also scanned LocalMachine\Root and both
+/// CertificateAuthority stores, but on networks with HTTPS monitoring the
+/// extra stores can introduce trust anchors that the monitor doesn't expect.
+/// Reading exactly the store the user manages locally keeps yt-dlp's trust
+/// view consistent with what the monitor expects.
 /// </summary>
 public static class SystemCertBundle
 {
     /// <summary>
     /// Generates or overwrites a PEM CA bundle at <paramref name="outputPath"/>.
-    /// Returns true on success. Best-effort: per-store failures (access denied,
-    /// missing store) are swallowed so a partial bundle still gets written.
+    /// Returns true on success. When <paramref name="logger"/> is supplied,
+    /// emits a `ca-bundle.entries` event listing the SHA-1 thumbprint of every
+    /// exported certificate — no subjects, no issuer names, so the log is safe
+    /// to share. The user can cross-reference thumbprints against certmgr.msc
+    /// to confirm the expected trust anchor is included.
     /// </summary>
-    public static bool GenerateOrRefresh(string outputPath)
+    public static bool GenerateOrRefresh(string outputPath, AppLogger? logger = null)
     {
         try
         {
             var sb = new StringBuilder(capacity: 64 * 1024);
-            AppendStore(sb, StoreName.Root, StoreLocation.LocalMachine);
-            AppendStore(sb, StoreName.Root, StoreLocation.CurrentUser);
-            AppendStore(sb, StoreName.CertificateAuthority, StoreLocation.LocalMachine);
-            AppendStore(sb, StoreName.CertificateAuthority, StoreLocation.CurrentUser);
+            var thumbprints = new List<string>();
 
-            var dir = Path.GetDirectoryName(outputPath);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            File.WriteAllText(outputPath, sb.ToString(), Encoding.ASCII);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// v1.2.4: writes a minimal OpenSSL config that lowers SECLEVEL to 0. yt-dlp's
-    /// bundled OpenSSL reads it when launched with OPENSSL_CONF pointing here, which
-    /// makes the TLS handshake accept weaker keys (e.g. legacy-key-size leaf certs that
-    /// some SSL-inspection proxies generate). Best-effort: returns true if the file
-    /// exists at <paramref name="outputPath"/> after the call.
-    /// </summary>
-    public static bool WritePermissiveOpensslConf(string outputPath)
-    {
-        try
-        {
-            var dir = Path.GetDirectoryName(outputPath);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            // ASCII keeps it portable across the bundled OpenSSL parsers; trailing
-            // newline matters for some libssl builds.
-            const string content =
-                "openssl_conf = default_conf\n" +
-                "\n" +
-                "[default_conf]\n" +
-                "ssl_conf = ssl_sect\n" +
-                "\n" +
-                "[ssl_sect]\n" +
-                "system_default = system_default_sect\n" +
-                "\n" +
-                "[system_default_sect]\n" +
-                "CipherString = DEFAULT@SECLEVEL=0\n";
-            File.WriteAllText(outputPath, content, Encoding.ASCII);
-            return File.Exists(outputPath);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static void AppendStore(StringBuilder sb, StoreName name, StoreLocation location)
-    {
-        try
-        {
-            using var store = new X509Store(name, location);
+            using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
             store.Open(OpenFlags.ReadOnly);
             foreach (var cert in store.Certificates)
             {
@@ -99,12 +46,26 @@ public static class SystemCertBundle
                     sb.Append(b64, i, take).Append('\n');
                 }
                 sb.Append("-----END CERTIFICATE-----\n");
+                if (!string.IsNullOrEmpty(cert.Thumbprint))
+                    thumbprints.Add(cert.Thumbprint);
             }
+
+            var dir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(outputPath, sb.ToString(), Encoding.ASCII);
+
+            logger?.Info("ca-bundle.entries", new Dictionary<string, string>
+            {
+                ["store"]       = "CurrentUser\\Root",
+                ["count"]       = thumbprints.Count.ToString(),
+                ["thumbprints"] = string.Join(",", thumbprints),
+            });
+
+            return true;
         }
         catch
         {
-            // Per-store best-effort: some stores are restricted in managed environments;
-            // skip them silently rather than aborting the whole bundle.
+            return false;
         }
     }
 }

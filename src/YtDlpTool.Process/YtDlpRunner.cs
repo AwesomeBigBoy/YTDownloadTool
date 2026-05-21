@@ -9,15 +9,13 @@ public sealed class YtDlpRunner
     private readonly string _executable;
     private readonly bool _allowUntrustedCerts;
     private readonly string? _caBundlePath;
-    private readonly string? _opensslConfPath;
     private readonly AppLogger? _logger;
 
-    public YtDlpRunner(string executable, bool allowUntrustedCerts = false, string? caBundlePath = null, string? opensslConfPath = null, AppLogger? logger = null)
+    public YtDlpRunner(string executable, bool allowUntrustedCerts = false, string? caBundlePath = null, AppLogger? logger = null)
     {
         _executable = executable;
         _allowUntrustedCerts = allowUntrustedCerts;
         _caBundlePath = caBundlePath;
-        _opensslConfPath = opensslConfPath;
         _logger = logger;
     }
 
@@ -64,10 +62,6 @@ public sealed class YtDlpRunner
             ["arg_count"]     = arguments.Count.ToString(),
             ["url_hash"]      = urlForHashing is null ? "" : AppLogger.HashSuffix(urlForHashing),
             ["extra_env"]     = extraEnv is null ? "" : string.Join(',', extraEnv.Keys),
-            // v1.2.4: field meaning changed from "did we add --no-check-certificates"
-            // (legacy) to "did we relax HTTPS strictness via OPENSSL_CONF SECLEVEL=0"
-            // (current). Both come from the same AllowUntrustedCertificates config
-            // flag, so log continuity is preserved.
             ["allow_no_cert"] = _allowUntrustedCerts ? "true" : "false",
         });
     }
@@ -95,41 +89,13 @@ public sealed class YtDlpRunner
     // sees the site-installed CA without any code knowing which one matters.
     private IReadOnlyDictionary<string, string>? BuildExtraEnv()
     {
-        var hasCaBundle    = !string.IsNullOrEmpty(_caBundlePath) && File.Exists(_caBundlePath);
-        var hasOpensslConf = _allowUntrustedCerts
-            && !string.IsNullOrEmpty(_opensslConfPath)
-            && File.Exists(_opensslConfPath);
-
-        if (!hasCaBundle && !hasOpensslConf) return null;
-
-        var env = new Dictionary<string, string>();
-        if (hasCaBundle)
+        if (string.IsNullOrEmpty(_caBundlePath) || !File.Exists(_caBundlePath)) return null;
+        return new Dictionary<string, string>
         {
-            env["SSL_CERT_FILE"]      = _caBundlePath!;
-            env["REQUESTS_CA_BUNDLE"] = _caBundlePath!;
-            env["CURL_CA_BUNDLE"]     = _caBundlePath!;
-        }
-        // v1.2.4: OPENSSL_CONF env var. Set only when the user opted in to
-        // AllowUntrustedCertificates. Python's bundled OpenSSL ignores this by
-        // default (compiled with OPENSSL_INIT_NO_LOAD_CONFIG), so it's a no-op
-        // on the upstream yt-dlp.exe. Kept as defence in depth for future Python
-        // builds that might honour it.
-        if (hasOpensslConf)
-        {
-            env["OPENSSL_CONF"] = _opensslConfPath!;
-        }
-        // v1.3.0: activate the runtime hook baked into our patched yt-dlp.exe.
-        // The hook checks for YTDLP_RELAX_SECLEVEL=1 at Python startup and
-        // monkey-patches ssl.SSLContext.__init__ to call
-        // set_ciphers('DEFAULT@SECLEVEL=0'), which allows TLS handshakes to
-        // complete with leaf certificates whose key sizes the default would
-        // reject. Cert-chain + hostname validation still run normally.
-        // See build/yt-dlp-patch/ for the patch source + audit trail.
-        if (_allowUntrustedCerts)
-        {
-            env["YTDLP_RELAX_SECLEVEL"] = "1";
-        }
-        return env;
+            ["SSL_CERT_FILE"] = _caBundlePath,
+            ["REQUESTS_CA_BUNDLE"] = _caBundlePath,
+            ["CURL_CA_BUNDLE"] = _caBundlePath,
+        };
     }
 
     public async Task<MetadataFetchResult> FetchMetadataAsync(
@@ -168,13 +134,6 @@ public sealed class YtDlpRunner
                 "--no-warnings",
             };
             fetchArgs.AddRange(BuildCommonCliArgs());
-            // v1.2.5: re-added --no-check-certificates after v1.2.4 (Option B, OPENSSL_CONF
-            // SECLEVEL=0 only) failed in testing. Root cause: Python ssl module is
-            // built with OPENSSL_INIT_NO_LOAD_CONFIG since 3.8, so OPENSSL_CONF env var
-            // is ignored. SECLEVEL stays at 1, weak-key certs rejected at handshake.
-            // OPENSSL_CONF is still set by BuildExtraEnv as a best-effort no-op (some
-            // OpenSSL builds do load it; harmless on the ones that don't). The actual
-            // bypass is --no-check-certificates here.
             if (_allowUntrustedCerts) fetchArgs.Add("--no-check-certificates");
             AddSystemProxyArgs(fetchArgs);
             fetchArgs.Add("--");
@@ -471,7 +430,6 @@ public sealed class YtDlpRunner
         argList.AddRange(BuildCommonCliArgs());
         argList.AddRange(BuildFfmpegLocationArgs());
         AddSystemProxyArgs(argList);
-        // v1.2.5: re-added --no-check-certificates (see FetchMetadataAsync for rationale).
         if (_allowUntrustedCerts) argList.Add("--no-check-certificates");
         argList.Add("--");
         argList.Add(url);

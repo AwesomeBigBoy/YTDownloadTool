@@ -226,16 +226,6 @@
                                     Margin="0,4,0,0"
                                     Visibility="Collapsed"
                                     Click="OnOpenLatestLogClicked" />
-                            <Rectangle Height="1" Fill="{DynamicResource Brush.GlassBorder}" Margin="0,16,0,12" />
-                            <CheckBox x:Name="AllowUntrustedCertificatesCheckbox"
-                                      Content="允許不受信任憑證"
-                                      FontWeight="SemiBold"
-                                      Foreground="{DynamicResource Brush.TextPrimary}" />
-                            <TextBlock TextWrapping="Wrap"
-                                       Margin="22,4,0,0"
-                                       FontSize="12"
-                                       Foreground="{DynamicResource Brush.TextSecondary}"
-                                       Text="啟用後 YtDlpTool 會接受目前網路使用的 HTTPS 憑證（包括金鑰長度較短的）。請只在你信任目前網路時啟用；連到公共 wifi（咖啡廳、機場等）建議關閉。" />
                         </StackPanel>
                     </Border>
                 </StackPanel>

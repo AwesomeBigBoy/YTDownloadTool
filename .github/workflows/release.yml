@@ -57,18 +57,7 @@ jobs:
       - name: Self-contained publish
         run: dotnet publish src/YtDlpTool/YtDlpTool.csproj -c Release -r win-x64 --no-restore
 
-      - name: Setup Python (for yt-dlp source build)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Build patched yt-dlp.exe from upstream source
-        shell: pwsh
-        run: |
-          $publishDir = (Get-ChildItem -Recurse -Path src/YtDlpTool/bin/Release -Filter publish -Directory | Select-Object -First 1).FullName
-          ./build/build-patched-ytdlp.ps1 -OutputDir $publishDir
-
-      - name: Fetch external deps (ffmpeg)
+      - name: Fetch external deps
         shell: pwsh
         run: |
           $publishDir = (Get-ChildItem -Recurse -Path src/YtDlpTool/bin/Release -Filter publish -Directory | Select-Object -First 1).FullName

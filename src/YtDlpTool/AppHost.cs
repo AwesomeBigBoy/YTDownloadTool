@@ -82,7 +82,7 @@ public sealed class AppHost : IDisposable
         // injection on each ProcessStartArguments removes the global-env hop entirely.
         var caBundlePath = Path.Combine(Paths.DataRoot, "system-ca-bundle.pem");
         string? injectableCaBundle = null;
-        if (SystemCertBundle.GenerateOrRefresh(caBundlePath))
+        if (SystemCertBundle.GenerateOrRefresh(caBundlePath, Logger))
         {
             injectableCaBundle = caBundlePath;
             Logger.Info("ca-bundle.generated", new Dictionary<string, string>
@@ -99,28 +99,6 @@ public sealed class AppHost : IDisposable
             });
         }
 
-        // v1.2.4: write a permissive OpenSSL config so SECLEVEL=0 can be turned on for
-        // yt-dlp child processes when the user opted into AllowUntrustedCertificates.
-        // The file is created unconditionally (cheap, ~200 bytes) but OPENSSL_CONF is
-        // only set in the env when the flag is on (see YtDlpRunner.BuildExtraEnv).
-        var opensslConfPath = Path.Combine(Paths.DataRoot, "openssl-permissive.cnf");
-        string? injectableOpensslConf = null;
-        if (SystemCertBundle.WritePermissiveOpensslConf(opensslConfPath))
-        {
-            injectableOpensslConf = opensslConfPath;
-            Logger.Info("openssl.conf.written", new Dictionary<string, string>
-            {
-                ["path"] = opensslConfPath,
-            });
-        }
-        else
-        {
-            Logger.Warn("openssl.conf.write_failed", new Dictionary<string, string>
-            {
-                ["path"] = opensslConfPath,
-            });
-        }
-
         StateJournal = new StateJournal(Paths.StateLog);
 
         var ytDlpExe  = Path.Combine(Paths.BinDirectory, "yt-dlp.exe");
@@ -129,7 +107,6 @@ public sealed class AppHost : IDisposable
             ytDlpExe,
             allowUntrustedCerts: Config.AllowUntrustedCertificates,
             caBundlePath: injectableCaBundle,
-            opensslConfPath: injectableOpensslConf,
             logger: Logger);
         Ffmpeg = new FfmpegRunner(ffmpegExe);
 

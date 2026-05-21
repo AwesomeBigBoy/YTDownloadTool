@@ -26,19 +26,11 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $binDir = Join-Path $OutputDir 'bin'
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 
-# yt-dlp: v1.3.0+ does NOT download the prebuilt yt-dlp.exe. It is built from
-# upstream source by build/build-patched-ytdlp.ps1, which the release workflow
-# runs before this script. We just compute the SHA256 of whatever ended up in
-# bin/ for the manifest. If yt-dlp.exe is missing, warn but don't fail — that
-# lets local-dev runs of this script (without the build step) still complete
-# so devs can iterate on ffmpeg handling.
+# yt-dlp
 $ytDlpDest = Join-Path $binDir 'yt-dlp.exe'
-if (Test-Path $ytDlpDest) {
-    $ytdlpSha = (Get-FileHash -Algorithm SHA256 -Path $ytDlpDest).Hash.ToLowerInvariant()
-} else {
-    Write-Warning "yt-dlp.exe not present in $binDir. Run build/build-patched-ytdlp.ps1 before this script for a real release build."
-    $ytdlpSha = '<not-built>'
-}
+Write-Host "Downloading yt-dlp from $($manifest.'yt-dlp'.url)"
+Invoke-WebRequest -Uri $manifest.'yt-dlp'.url -OutFile $ytDlpDest -UseBasicParsing
+$ytdlpSha = Verify-Sha256 -Path $ytDlpDest -Expected $manifest.'yt-dlp'.sha256
 
 # ffmpeg
 $ffmpegZip = Join-Path $env:TEMP "ffmpeg-$(New-Guid).zip"
