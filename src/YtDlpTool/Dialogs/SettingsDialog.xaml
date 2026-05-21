@@ -239,7 +239,7 @@
                                        Margin="22,4,0,0"
                                        FontSize="12"
                                        Foreground="{DynamicResource Brush.TextSecondary}"
-                                       Text="啟用後 YtDlpTool 會接受目前網路使用的 HTTPS 憑證（包括金鑰長度較短的）。請只在你信任目前網路時啟用；連到公共 wifi（咖啡廳、機場等）建議關閉。" />
+                                       Text="⚠️ 啟用後 YtDlpTool 會接受任何 HTTPS 憑證 — 不檢查發行單位、不檢查金鑰長度、不檢查主機名是否相符。請只在你完全信任當前網路時啟用（例如自己的家用網路）。連到公共 wifi（咖啡廳、機場、飯店等）時建議關閉，否則他人可能攔截或竄改你下載的內容。" />
                         </StackPanel>
                     </Border>
                 </StackPanel>

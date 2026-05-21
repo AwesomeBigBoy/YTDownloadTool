@@ -121,16 +121,35 @@ public partial class SettingsDialog : Window
         // (which happens in AppHost ctor at startup). Toggling here writes to disk but
         // won't affect the running app until restart. The description text below the
         // checkbox warns the user about this.
-        var requireRestart = cfg.AllowUntrustedCertificates != (AllowUntrustedCertificatesCheckbox.IsChecked == true);
-        cfg.AllowUntrustedCertificates = AllowUntrustedCertificatesCheckbox.IsChecked == true;
+        // v1.3.0: emit a config.changed audit-log event whenever the flag toggles so
+        // there is a record of when verification was relaxed/restored. Helps anyone
+        // reviewing the log later understand which sessions ran with reduced trust.
+        var newAllowUntrusted = AllowUntrustedCertificatesCheckbox.IsChecked == true;
+        var requireRestart = cfg.AllowUntrustedCertificates != newAllowUntrusted;
+        if (requireRestart)
+        {
+            _host.Logger.Info("config.changed", new Dictionary<string, string>
+            {
+                ["key"]        = "AllowUntrustedCertificates",
+                ["old_value"]  = cfg.AllowUntrustedCertificates.ToString(),
+                ["new_value"]  = newAllowUntrusted.ToString(),
+                ["takes_effect_at"] = "next_restart",
+            });
+        }
+        cfg.AllowUntrustedCertificates = newAllowUntrusted;
         _host.ConfigStore.Save(cfg);
         ((App)Application.Current).ThemeService.Apply(cfg.Theme);
         DialogResult = true;
         Close();
         if (requireRestart)
         {
+            var stateWord = newAllowUntrusted ? "啟用" : "關閉";
+            var extra = newAllowUntrusted
+                ? "\n\n再次提醒：啟用後 YtDlpTool 會接受任何 HTTPS 憑證。" +
+                  "在公共網路（咖啡廳、機場 wifi 等）使用會有遭中間人攔截的風險，建議只在你完全信任的網路下使用。"
+                : "";
             MessageBox.Show(
-                "「允許不受信任憑證」設定已儲存，需重新啟動程式後生效。",
+                $"「允許不受信任憑證」已{stateWord}，需重新啟動程式後生效。" + extra,
                 "YtDlpTool", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
