@@ -79,13 +79,20 @@ public partial class SettingsDialog : Window
 
     private void OnShowCaThumbprintsClicked(object sender, RoutedEventArgs e)
     {
-        var thumbprints = SystemCertBundle.GetInstalledRootThumbprints();
-        var msg = $"已注入的根 CA 共 {thumbprints.Count} 張。\n\n" +
-                  "以下是每張憑證的 SHA-1 指紋（thumbprint）：\n\n" +
-                  string.Join("\n", thumbprints) +
+        var entries = SystemCertBundle.GetInstalledRootThumbprintsWithStore();
+        var local = entries.Where(e => e.Store == "LocalMachine\\Root").Select(e => e.Thumbprint).ToList();
+        var user  = entries.Where(e => e.Store == "CurrentUser\\Root").Select(e => e.Thumbprint).ToList();
+
+        var msg = $"已注入的根 CA 共 {entries.Count} 張：\n" +
+                  $"  · LocalMachine\\Root：{local.Count} 張\n" +
+                  $"  · CurrentUser\\Root：{user.Count} 張\n\n" +
+                  "── LocalMachine\\Root（系統範圍，GPO 推送的 CA 通常在此）──\n" +
+                  string.Join("\n", local) +
+                  "\n\n── CurrentUser\\Root（單一使用者範圍）──\n" +
+                  string.Join("\n", user) +
                   "\n\n" +
-                  "對照方式：開 certmgr.msc → 「目前使用者」→ " +
-                  "「受信任的根憑證授權單位」→ 選擇你要找的 CA → 雙擊 → " +
+                  "對照方式：開 certmgr.msc → 切換到「電腦」或「目前使用者」→ " +
+                  "「受信任的根憑證授權單位」→ 選擇 CA → 雙擊 → " +
                   "「詳細資料」分頁 → 「指紋」欄位。" +
                   "\n\n" +
                   "此資訊只顯示於這個對話框，不會寫入任何檔案。" +

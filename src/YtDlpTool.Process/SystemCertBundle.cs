@@ -10,31 +10,59 @@ namespace YtDlpTool.Process;
 /// Python (urllib / requests / curl) can consume via SSL_CERT_FILE /
 /// REQUESTS_CA_BUNDLE / CURL_CA_BUNDLE.
 ///
-/// Narrowed in v1.2.6 to read only CurrentUser\Trusted Root Certification
-/// Authorities — previous versions also scanned LocalMachine\Root and both
-/// CertificateAuthority stores, but on networks with HTTPS monitoring the
-/// extra stores can introduce trust anchors that the monitor doesn't expect.
-/// Reading exactly the store the user manages locally keeps yt-dlp's trust
-/// view consistent with what the monitor expects.
+/// v1.3.0-alpha4: scans both LocalMachine\Root AND CurrentUser\Root. GPO-
+/// deployed corporate CAs typically land in LocalMachine\Root (system-wide),
+/// while certmgr.msc's "Current User → Trusted Root Certification Authorities"
+/// view is actually a merged view of both stores. v1.2.6/v1.2.7 narrowed to
+/// CurrentUser\Root only, which dropped GPO-installed roots and caused
+/// "self-signed certificate in certificate chain" errors during HTTPS
+/// validation. Two-store read restores compatibility while still excluding
+/// the CertificateAuthority store (intermediate CAs that don't need to be
+/// trust anchors).
 /// </summary>
 public static class SystemCertBundle
 {
     /// <summary>
     /// Generates or overwrites a PEM CA bundle at <paramref name="outputPath"/>.
     /// Returns true on success. When <paramref name="logger"/> is supplied,
-    /// emits a `ca-bundle.entries` event listing the SHA-1 thumbprint of every
-    /// exported certificate — no subjects, no issuer names, so the log is safe
-    /// to share. The user can cross-reference thumbprints against certmgr.msc
-    /// to confirm the expected trust anchor is included.
+    /// emits a `ca-bundle.entries` event with the cert count per store — no
+    /// thumbprints, no subjects, no issuer names. Per-cert thumbprints are
+    /// available on-demand via Settings → 進階 → 檢視已注入的根 CA 指紋,
+    /// which shows them in a dialog that closes without writing to disk.
     /// </summary>
     public static bool GenerateOrRefresh(string outputPath, AppLogger? logger = null)
     {
         try
         {
             var sb = new StringBuilder(capacity: 64 * 1024);
-            var count = 0;
+            var localMachineCount = AppendStore(sb, StoreName.Root, StoreLocation.LocalMachine);
+            var currentUserCount  = AppendStore(sb, StoreName.Root, StoreLocation.CurrentUser);
 
-            using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
+            var dir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(outputPath, sb.ToString(), Encoding.ASCII);
+
+            logger?.Info("ca-bundle.entries", new Dictionary<string, string>
+            {
+                ["local_machine_count"] = localMachineCount.ToString(),
+                ["current_user_count"]  = currentUserCount.ToString(),
+                ["total_count"]         = (localMachineCount + currentUserCount).ToString(),
+            });
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static int AppendStore(StringBuilder sb, StoreName name, StoreLocation location)
+    {
+        var count = 0;
+        try
+        {
+            using var store = new X509Store(name, location);
             store.Open(OpenFlags.ReadOnly);
             foreach (var cert in store.Certificates)
             {
@@ -48,27 +76,13 @@ public static class SystemCertBundle
                 sb.Append("-----END CERTIFICATE-----\n");
                 count++;
             }
-
-            var dir = Path.GetDirectoryName(outputPath);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            File.WriteAllText(outputPath, sb.ToString(), Encoding.ASCII);
-
-            // v1.2.7: log only the count. Per-cert thumbprints are available
-            // on-demand via Settings → 進階 → 檢視已注入的根 CA 指紋, which
-            // shows them in a dialog that closes without writing to disk —
-            // avoids persistently exposing identifiable fingerprints.
-            logger?.Info("ca-bundle.entries", new Dictionary<string, string>
-            {
-                ["store"] = "CurrentUser\\Root",
-                ["count"] = count.ToString(),
-            });
-
-            return true;
         }
         catch
         {
-            return false;
+            // Per-store best-effort: missing or restricted stores don't abort
+            // the whole bundle. Caller still gets the certs from other stores.
         }
+        return count;
     }
 
     /// <summary>
@@ -106,29 +120,47 @@ public static class SystemCertBundle
     }
 
     /// <summary>
-    /// Returns SHA-1 thumbprints of every root CA currently in
-    /// CurrentUser\Trusted Root Certification Authorities. Called from the
-    /// Settings dialog when the user clicks the diagnostic button. Never
-    /// writes the returned data anywhere — the caller shows them in a
-    /// MessageBox that vanishes on close.
+    /// Returns SHA-1 thumbprints of every root CA in BOTH LocalMachine\Root
+    /// and CurrentUser\Trusted Root Certification Authorities, tagged with
+    /// which store they came from. Called from the Settings dialog when the
+    /// user clicks the diagnostic button. Never writes the returned data
+    /// anywhere — the caller shows them in a MessageBox that vanishes on close.
+    /// </summary>
+    public static IReadOnlyList<(string Store, string Thumbprint)> GetInstalledRootThumbprintsWithStore()
+    {
+        var thumbprints = new List<(string, string)>();
+        AppendThumbprints(thumbprints, "LocalMachine\\Root", StoreName.Root, StoreLocation.LocalMachine);
+        AppendThumbprints(thumbprints, "CurrentUser\\Root",  StoreName.Root, StoreLocation.CurrentUser);
+        return thumbprints;
+    }
+
+    /// <summary>
+    /// Backward-compat wrapper that returns just thumbprints (no store info).
+    /// Preserved so the Settings dialog can keep its old API; new callers
+    /// should prefer GetInstalledRootThumbprintsWithStore.
     /// </summary>
     public static IReadOnlyList<string> GetInstalledRootThumbprints()
     {
-        var thumbprints = new List<string>();
+        return GetInstalledRootThumbprintsWithStore().Select(t => t.Thumbprint).ToList();
+    }
+
+    private static void AppendThumbprints(
+        List<(string, string)> output, string storeLabel,
+        StoreName name, StoreLocation location)
+    {
         try
         {
-            using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
+            using var store = new X509Store(name, location);
             store.Open(OpenFlags.ReadOnly);
             foreach (var cert in store.Certificates)
             {
                 if (!string.IsNullOrEmpty(cert.Thumbprint))
-                    thumbprints.Add(cert.Thumbprint);
+                    output.Add((storeLabel, cert.Thumbprint));
             }
         }
         catch
         {
-            // best-effort; return whatever we collected before the failure
+            // best-effort; skip restricted/missing stores
         }
-        return thumbprints;
     }
 }
