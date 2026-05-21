@@ -93,6 +93,13 @@ public partial class UrlInputView : UserControl
                     ["elapsed_ms"] = ((int)sw.ElapsedMilliseconds).ToString(),
                     ["details"] = TruncateForLog(result.ErrorStderr ?? "")
                 });
+                // v1.3.0: if the parse failure was SSL-related and the user hasn't
+                // already enabled the bypass, prompt them to do so and auto-restart.
+                if (ViewModels.MainViewModel.IsSslErrorCode(mapped?.ErrorCode))
+                {
+                    App.OfferSslBypassPrompt(vm.Host,
+                        "貼上 YouTube 網址後解析失敗：" + (mapped?.UserMessage ?? ""));
+                }
                 return;
             }
             vm.CurrentMetadata = result.Metadata;

@@ -198,6 +198,107 @@ public partial class App : Application
         }
     }
 
+    // v1.3.0: shared session-scope flag so we only pop the "enable bypass and
+    // restart?" prompt once per launch even if multiple downloads fail in a row.
+    // User can still manually flip the Settings checkbox if they dismiss the
+    // first prompt and change their mind.
+    private static bool _bypassPromptShownThisSession;
+
+    /// <summary>
+    /// Offers the user the choice to enable AllowUntrustedCertificates and
+    /// auto-restart, after a URL parse or download failed with an SSL-related
+    /// error code. Returns true if the user accepted (restart in progress);
+    /// returns false if the user dismissed the prompt or the flag was already
+    /// enabled (no further action). Safe to call from any UI thread.
+    /// </summary>
+    public static bool OfferSslBypassPrompt(AppHost host, string contextLeadIn)
+    {
+        if (host.Config.AllowUntrustedCertificates) return false;
+        if (_bypassPromptShownThisSession) return false;
+        _bypassPromptShownThisSession = true;
+
+        var msg = contextLeadIn +
+                  "\n\n" +
+                  "可能是目前的網路會檢查 HTTPS 流量。是否要啟用「允許不受信任憑證」並重新啟動程式？" +
+                  "\n\n" +
+                  "⚠️ 啟用後 YtDlpTool 會接受任何 HTTPS 憑證 — " +
+                  "不檢查發行單位、不檢查金鑰長度、不檢查主機名是否相符。" +
+                  "請只在你完全信任當前網路時啟用（例如自己的家用網路）。" +
+                  "連到公共 wifi（咖啡廳、機場、飯店等）會有遭中間人攔截的風險。";
+
+        var result = MessageBox.Show(msg,
+            "下載失敗：HTTPS 驗證問題",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes) return false;
+
+        host.Config.AllowUntrustedCertificates = true;
+        host.ConfigStore.Save(host.Config);
+        host.Logger.Info("config.changed", new Dictionary<string, string>
+        {
+            ["key"]              = "AllowUntrustedCertificates",
+            ["old_value"]        = "False",
+            ["new_value"]        = "True",
+            ["trigger"]          = "ssl_failure_prompt",
+            ["takes_effect_at"]  = "next_restart",
+        });
+        RestartApplication();
+        return true;
+    }
+
+    /// <summary>
+    /// Confirms the user wants to enable AllowUntrustedCertificates from the
+    /// Settings dialog (different message wording than the failure-driven
+    /// prompt). Returns true if user accepted; caller should then save the
+    /// config and trigger a restart.
+    /// </summary>
+    public static bool ConfirmEnableUntrustedFromSettings()
+    {
+        var msg = "你正在啟用「允許不受信任憑證」。" +
+                  "\n\n" +
+                  "⚠️ 啟用後 YtDlpTool 會接受任何 HTTPS 憑證 — " +
+                  "不檢查發行單位、不檢查金鑰長度、不檢查主機名是否相符。" +
+                  "\n\n" +
+                  "請只在你完全信任當前網路時啟用。" +
+                  "連到公共 wifi（咖啡廳、機場、飯店等）會有遭中間人攔截或竄改你下載內容的風險。" +
+                  "\n\n" +
+                  "確定要啟用嗎？確認後程式會自動重新啟動讓設定生效。";
+        var result = MessageBox.Show(msg,
+            "確認啟用降級驗證",
+            MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+        return result == MessageBoxResult.OK;
+    }
+
+    /// <summary>
+    /// Closes this YtDlpTool process and launches a new instance from the same
+    /// path. Used to apply settings (specifically AllowUntrustedCertificates)
+    /// that are captured at YtDlpRunner construction time, which happens once
+    /// in AppHost ctor at startup.
+    /// </summary>
+    public static void RestartApplication()
+    {
+        // ProcessPath is the only reliable way to get the running .exe path under
+        // a single-file self-contained WPF app on .NET 8. Assembly.Location returns
+        // empty for embedded assemblies, so don't fall back to that.
+        var exePath = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exePath)) return;
+        try
+        {
+            // Fully-qualify against YtDlpTool.Process project namespace (which
+            // also lives in this file's `using` scope).
+            System.Diagnostics.Process.Start(new ProcessStartInfo
+            {
+                FileName = exePath,
+                UseShellExecute = true,
+            });
+        }
+        catch
+        {
+            // best-effort — if we can't relaunch, at least don't crash the
+            // current process while shutting down.
+        }
+        Current?.Shutdown();
+    }
+
     private void WriteEarlyDiag(string category, Dictionary<string,string>? fields)
     {
         try

@@ -110,6 +110,18 @@ public partial class SettingsDialog : Window
     private void OnSave(object sender, RoutedEventArgs e)
     {
         var cfg = _host.Config;
+
+        // v1.3.0: if the user is ENABLING AllowUntrustedCertificates (false → true),
+        // intercept BEFORE any save and show the full risk warning. If they cancel
+        // we revert the checkbox and return early without touching cfg.
+        var newAllowUntrusted = AllowUntrustedCertificatesCheckbox.IsChecked == true;
+        var willEnableUntrusted = newAllowUntrusted && !cfg.AllowUntrustedCertificates;
+        if (willEnableUntrusted && !App.ConfirmEnableUntrustedFromSettings())
+        {
+            AllowUntrustedCertificatesCheckbox.IsChecked = false;
+            return;
+        }
+
         cfg.DefaultSaveDirectory = _selectedSaveDir;
         cfg.ConcurrentDownloads = (int)ConcurrencySlider.Value;
         _host.Queue.MaxConcurrency = cfg.ConcurrentDownloads;
@@ -117,22 +129,16 @@ public partial class SettingsDialog : Window
         cfg.YtDlpCheckFrequency = EnableYtDlpUpdates.IsChecked == true ? UpdateCheckFrequency.Weekly : UpdateCheckFrequency.Never;
         cfg.FfmpegCheckFrequency = EnableFfmpegUpdates.IsChecked == true ? UpdateCheckFrequency.Weekly : UpdateCheckFrequency.Never;
         cfg.Theme = ParseTheme(ThemeCombo);
-        // v1.2.4: AllowUntrustedCertificates is read at YtDlpRunner construction time
-        // (which happens in AppHost ctor at startup). Toggling here writes to disk but
-        // won't affect the running app until restart. The description text below the
-        // checkbox warns the user about this.
-        // v1.3.0: emit a config.changed audit-log event whenever the flag toggles so
-        // there is a record of when verification was relaxed/restored. Helps anyone
-        // reviewing the log later understand which sessions ran with reduced trust.
-        var newAllowUntrusted = AllowUntrustedCertificatesCheckbox.IsChecked == true;
-        var requireRestart = cfg.AllowUntrustedCertificates != newAllowUntrusted;
-        if (requireRestart)
+
+        var allowUntrustedChanged = cfg.AllowUntrustedCertificates != newAllowUntrusted;
+        if (allowUntrustedChanged)
         {
             _host.Logger.Info("config.changed", new Dictionary<string, string>
             {
                 ["key"]        = "AllowUntrustedCertificates",
                 ["old_value"]  = cfg.AllowUntrustedCertificates.ToString(),
                 ["new_value"]  = newAllowUntrusted.ToString(),
+                ["trigger"]    = "settings_dialog_save",
                 ["takes_effect_at"] = "next_restart",
             });
         }
@@ -141,16 +147,15 @@ public partial class SettingsDialog : Window
         ((App)Application.Current).ThemeService.Apply(cfg.Theme);
         DialogResult = true;
         Close();
-        if (requireRestart)
+
+        // v1.3.0: if AllowUntrustedCertificates was toggled (either direction),
+        // auto-restart so the new YtDlpRunner picks up the new value. The
+        // ConfirmEnableUntrustedFromSettings prompt above already gave the user
+        // their last chance to back out when ENABLING; for disabling we just
+        // restart without further confirmation.
+        if (allowUntrustedChanged)
         {
-            var stateWord = newAllowUntrusted ? "啟用" : "關閉";
-            var extra = newAllowUntrusted
-                ? "\n\n再次提醒：啟用後 YtDlpTool 會接受任何 HTTPS 憑證。" +
-                  "在公共網路（咖啡廳、機場 wifi 等）使用會有遭中間人攔截的風險，建議只在你完全信任的網路下使用。"
-                : "";
-            MessageBox.Show(
-                $"「允許不受信任憑證」已{stateWord}，需重新啟動程式後生效。" + extra,
-                "YtDlpTool", MessageBoxButton.OK, MessageBoxImage.Information);
+            App.RestartApplication();
         }
     }
 

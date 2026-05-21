@@ -159,6 +159,16 @@ public partial class MainViewModel : ObservableObject
                         f.FailureReason = e.Error.UserMessage;
                     }
                     Interop.ToastService.NotifyDownloadFailed(e.Job.Title, e.Error.UserMessage);
+                    // v1.3.0: if this was an SSL verification failure and the user
+                    // hasn't already opted into the bypass, offer it now with full
+                    // security context. App.OfferSslBypassPrompt handles
+                    // dedup-per-session, the modal warning, config save, and
+                    // auto-restart in one call.
+                    if (IsSslFailureCode(e.Error.ErrorCode))
+                    {
+                        App.OfferSslBypassPrompt(_host,
+                            $"下載「{e.Job.Title}」失敗：{e.Error.UserMessage}");
+                    }
                     break;
                 case JobCancelledEvent e:
                     var x = Find(e.Job.Id);
@@ -175,6 +185,13 @@ public partial class MainViewModel : ObservableObject
     }
 
     private QueueItemViewModel? Find(Guid id) => Queue.FirstOrDefault(q => q.Id == id);
+
+    // v1.3.0: SSL-related error codes that suggest the user is on a network that
+    // intercepts HTTPS — used to gate the "enable bypass + restart?" prompt.
+    private static bool IsSslFailureCode(string? code) =>
+        !string.IsNullOrEmpty(code) && (code == "E-SSL01" || code == "E-SSL02");
+
+    internal static bool IsSslErrorCode(string? code) => IsSslFailureCode(code);
 
     private static async Task LoadQueueThumbnailAsync(QueueItemViewModel item, string url)
     {
