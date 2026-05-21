@@ -93,12 +93,14 @@ public partial class UrlInputView : UserControl
                     ["elapsed_ms"] = ((int)sw.ElapsedMilliseconds).ToString(),
                     ["details"] = TruncateForLog(result.ErrorStderr ?? "")
                 });
-                // v1.3.0: if the parse failure was SSL-related and the user hasn't
-                // already enabled the bypass, prompt them to do so and auto-restart.
-                if (ViewModels.MainViewModel.IsSslErrorCode(mapped?.ErrorCode))
+                // v1.3.0/1.3.3: only offer the SSL bypass when the failure looks
+                // SSL-related. ShouldOfferSslPrompt checks both the code and the
+                // raw stderr, so zero-output timeouts (yt-dlp launch failure) don't
+                // get mis-routed into "is this SSL?".
+                if (mapped is not null && ViewModels.MainViewModel.ShouldOfferSslPrompt(mapped))
                 {
                     App.OfferSslBypassPrompt(vm.Host,
-                        "貼上 YouTube 網址後解析失敗：" + (mapped?.UserMessage ?? ""));
+                        "貼上 YouTube 網址後解析失敗：" + mapped.UserMessage);
                 }
                 return;
             }

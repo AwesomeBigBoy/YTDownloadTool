@@ -73,6 +73,28 @@ public static class ErrorMapper
             return new MappedError(ErrorCategory.UnknownError, "下載失敗（無錯誤訊息）", "E-UNKNOWN", false);
 
         var raw = TruncateDetails(stderr);
+
+        // v1.3.3: zero-output timeout. When yt-dlp.exe times out AND wrote
+        // nothing at all (the stderr equals just the YtDlpRunner-injected
+        // "[timeout after Ns]" marker), it points at yt-dlp.exe failing to
+        // start rather than a network/SSL issue — PyInstaller-frozen Python
+        // can hang on cold-start under aggressive AV scanning of %TEMP%
+        // extraction, and on a machine where ffmpeg.exe probe succeeds but
+        // yt-dlp.exe probe times out the diagnostic is unambiguous. We give
+        // this its own code (E-TIMEOUT02) and message so the auto-prompt
+        // logic doesn't mis-route it as SSL.
+        if (System.Text.RegularExpressions.Regex.IsMatch(stderr.Trim(),
+                @"^\[timeout after \d+s\]$"))
+        {
+            return new MappedError(ErrorCategory.NetworkError, "E-TIMEOUT02",
+                "解析網址逾時，且 yt-dlp 在 30 秒內沒有產生任何輸出。" +
+                "通常代表 yt-dlp 本身沒能正常啟動，可能原因：" +
+                "(1) 防毒軟體阻擋了 yt-dlp.exe 的執行 — 請檢查防毒隔離區並把 yt-dlp.exe 加入信任清單；" +
+                "(2) 機器資源不足或 %TEMP% 寫入受限 — 關閉其他程式後重試，或將整個資料夾移到桌面/個人目錄；" +
+                "(3) yt-dlp.exe 檔案損毀 — 請至設定 → 進階 → 重新下載元件。",
+                true, raw);
+        }
+
         foreach (var r in Rules)
             if (r.Pattern.IsMatch(stderr))
                 return new MappedError(r.Cat, r.Message, r.Code, r.CanRetry, raw);

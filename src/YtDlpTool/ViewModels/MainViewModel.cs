@@ -159,12 +159,12 @@ public partial class MainViewModel : ObservableObject
                         f.FailureReason = e.Error.UserMessage;
                     }
                     Interop.ToastService.NotifyDownloadFailed(e.Job.Title, e.Error.UserMessage);
-                    // v1.3.0: if this was an SSL verification failure and the user
+                    // v1.3.0/1.3.3: if this failure looks SSL-related and the user
                     // hasn't already opted into the bypass, offer it now with full
-                    // security context. App.OfferSslBypassPrompt handles
-                    // dedup-per-session, the modal warning, config save, and
-                    // auto-restart in one call.
-                    if (IsSslFailureCode(e.Error.ErrorCode))
+                    // security context. ShouldOfferSslPrompt avoids mis-routing
+                    // non-SSL timeouts (e.g. yt-dlp launch failures) into the SSL
+                    // prompt by checking RawDetails for SSL hints.
+                    if (ShouldOfferSslPrompt(e.Error))
                     {
                         App.OfferSslBypassPrompt(_host,
                             $"下載「{e.Job.Title}」失敗：{e.Error.UserMessage}");
@@ -186,20 +186,30 @@ public partial class MainViewModel : ObservableObject
 
     private QueueItemViewModel? Find(Guid id) => Queue.FirstOrDefault(q => q.Id == id);
 
-    // v1.3.0/1.3.2: error codes that suggest the user is on a network that
-    // intercepts/blocks HTTPS — used to gate the "enable bypass + restart?"
-    // prompt. v1.3.2 broadened from SSL-specific to also include the timeout
-    // and generic-network codes, because in inspection environments the actual
-    // SSL handshake failure often surfaces as a timeout (yt-dlp's HTTP client
-    // hangs at handshake until the timeout fires instead of returning the
-    // verify_failed error directly). Offering the bypass on these failures
-    // catches more cases at the cost of one prompt-per-session — which the
-    // user can always dismiss if they're on a clean public network.
-    private static bool IsSslFailureCode(string? code) =>
-        code == "E-SSL01" || code == "E-SSL02" ||
-        code == "E-TIMEOUT01" || code == "E-NET001";
+    // v1.3.3: rather than naive blanket "prompt SSL on any network-ish failure",
+    // gate the offer on actual evidence that SSL is involved. v1.3.2 broadened
+    // the trigger to E-TIMEOUT01 and ended up mis-routing zero-output timeouts
+    // (yt-dlp.exe hung during PyInstaller cold-start under AV scanning) into
+    // the SSL prompt, which is unhelpful and confusing.
+    //
+    //   - E-SSL01 / E-SSL02 → always offer (direct SSL evidence)
+    //   - E-TIMEOUT01 + RawDetails contains "ssl"/"certificate"/"verify" →
+    //     offer (SSL failure surfaced as connect-timeout)
+    //   - E-TIMEOUT02 (zero-output timeout, new in v1.3.3) → never offer;
+    //     points at AV/launch/resource problem, not SSL
+    //   - Anything else → don't offer; user can still flip the flag manually
+    internal static bool ShouldOfferSslPrompt(Domain.Services.MappedError err)
+    {
+        if (err.ErrorCode == "E-SSL01" || err.ErrorCode == "E-SSL02") return true;
+        if (err.ErrorCode == "E-TIMEOUT01" && HasSslHint(err.RawDetails)) return true;
+        return false;
+    }
 
-    internal static bool IsSslErrorCode(string? code) => IsSslFailureCode(code);
+    private static bool HasSslHint(string? raw) =>
+        !string.IsNullOrEmpty(raw) && (
+            raw.Contains("ssl",         StringComparison.OrdinalIgnoreCase) ||
+            raw.Contains("certificate", StringComparison.OrdinalIgnoreCase) ||
+            raw.Contains("verify",      StringComparison.OrdinalIgnoreCase));
 
     private static async Task LoadQueueThumbnailAsync(QueueItemViewModel item, string url)
     {
