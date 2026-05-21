@@ -229,12 +229,41 @@ public partial class SettingsDialog : Window
         UpdateProgressBar.IsIndeterminate = false;
         UpdateProgressBar.Value = 0;
         var progress = new Progress<UpdateApplyProgress>(p => ApplyUpdateStageToUi(p));
+        // v1.3.1: log which files are about to be applied so the post-update log
+        // shows exactly which components were swapped (useful when diagnosing
+        // "why is it still prompting me to update yt-dlp?").
+        _host.Logger.Info("update.apply.entries", new Dictionary<string, string>
+        {
+            ["count"] = entries.Count.ToString(),
+            ["names"] = string.Join(",", entries.Select(e => e.Name)),
+        });
         var result = await _host.UpdateApplier.ApplyAsync(entries, progress, ct).ConfigureAwait(true);
         if (ct.IsCancellationRequested) return;
         if (result.IsSuccess)
         {
             UpdateStatusText.Text = "✓ 已更新到最新版本";
             UpdateProgressBar.Value = 100;
+            // v1.3.1: if YtDlpTool.exe itself was updated, the running process is
+            // still the previous binary (Windows lets us rename a running .exe but
+            // we keep executing from our open handle). The user MUST restart to
+            // see the new version. Previously the UI just hid the status text and
+            // left users thinking the update was complete — confusing because the
+            // title bar still showed the old version. Now we offer auto-restart.
+            var appExeUpdated = entries.Any(e =>
+                string.Equals(e.Name, "YtDlpTool.exe", StringComparison.OrdinalIgnoreCase));
+            if (appExeUpdated)
+            {
+                var resp = MessageBox.Show(
+                    "YtDlpTool 主程式已更新完成。\n\n" +
+                    "需要重新啟動才能套用新版本。是否立刻重新啟動？",
+                    "更新完成",
+                    MessageBoxButton.YesNo, MessageBoxImage.Information);
+                if (resp == MessageBoxResult.Yes)
+                {
+                    App.RestartApplication();
+                    return;
+                }
+            }
             try { await Task.Delay(2000, ct).ConfigureAwait(true); }
             catch (OperationCanceledException) { return; }
             UpdateStatusText.Visibility = Visibility.Collapsed;
