@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using YtDlpTool.Domain.Models;
 using YtDlpTool.Domain.Updates;
+using YtDlpTool.Process;
 
 namespace YtDlpTool.Dialogs;
 
@@ -73,6 +74,27 @@ public partial class SettingsDialog : Window
             "https://github.com/AwesomeBigBoy/YTDownloadTool/.github/workflows/release.yml\n\n" +
             "授權：MIT (本工具)\nyt-dlp：Unlicense\nffmpeg：GPL/LGPL",
             "關於 YtDlpTool", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    // v1.2.7: shows SHA-1 thumbprints of all root CAs currently in
+    // CurrentUser\Root. Useful for the user to cross-check (via certmgr.msc)
+    // that an expected trust anchor was captured. Information is NEVER
+    // written to disk — closing this dialog removes it.
+    private void OnShowCaThumbprintsClicked(object sender, RoutedEventArgs e)
+    {
+        var thumbprints = SystemCertBundle.GetInstalledRootThumbprints();
+        var msg = $"已注入的根 CA 共 {thumbprints.Count} 張。\n\n" +
+                  "以下是每張憑證的 SHA-1 指紋（thumbprint）：\n\n" +
+                  string.Join("\n", thumbprints) +
+                  "\n\n" +
+                  "對照方式：開 certmgr.msc → 「目前使用者」→ " +
+                  "「受信任的根憑證授權單位」→ 選擇你要找的 CA → 雙擊 → " +
+                  "「詳細資料」分頁 → 「指紋」欄位。" +
+                  "\n\n" +
+                  "此資訊只顯示於這個對話框，不會寫入任何檔案。" +
+                  "關閉對話框後即消失。";
+        MessageBox.Show(msg, "已注入的根 CA 指紋",
+            MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void OnCancel(object sender, RoutedEventArgs e)

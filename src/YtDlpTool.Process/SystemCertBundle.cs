@@ -32,7 +32,7 @@ public static class SystemCertBundle
         try
         {
             var sb = new StringBuilder(capacity: 64 * 1024);
-            var thumbprints = new List<string>();
+            var count = 0;
 
             using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
             store.Open(OpenFlags.ReadOnly);
@@ -46,19 +46,21 @@ public static class SystemCertBundle
                     sb.Append(b64, i, take).Append('\n');
                 }
                 sb.Append("-----END CERTIFICATE-----\n");
-                if (!string.IsNullOrEmpty(cert.Thumbprint))
-                    thumbprints.Add(cert.Thumbprint);
+                count++;
             }
 
             var dir = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(outputPath, sb.ToString(), Encoding.ASCII);
 
+            // v1.2.7: log only the count. Per-cert thumbprints are available
+            // on-demand via Settings → 進階 → 檢視已注入的根 CA 指紋, which
+            // shows them in a dialog that closes without writing to disk —
+            // avoids persistently exposing identifiable fingerprints.
             logger?.Info("ca-bundle.entries", new Dictionary<string, string>
             {
-                ["store"]       = "CurrentUser\\Root",
-                ["count"]       = thumbprints.Count.ToString(),
-                ["thumbprints"] = string.Join(",", thumbprints),
+                ["store"] = "CurrentUser\\Root",
+                ["count"] = count.ToString(),
             });
 
             return true;
@@ -67,5 +69,32 @@ public static class SystemCertBundle
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Returns SHA-1 thumbprints of every root CA currently in
+    /// CurrentUser\Trusted Root Certification Authorities. Called from the
+    /// Settings dialog when the user clicks the diagnostic button. Never
+    /// writes the returned data anywhere — the caller shows them in a
+    /// MessageBox that vanishes on close.
+    /// </summary>
+    public static IReadOnlyList<string> GetInstalledRootThumbprints()
+    {
+        var thumbprints = new List<string>();
+        try
+        {
+            using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.ReadOnly);
+            foreach (var cert in store.Certificates)
+            {
+                if (!string.IsNullOrEmpty(cert.Thumbprint))
+                    thumbprints.Add(cert.Thumbprint);
+            }
+        }
+        catch
+        {
+            // best-effort; return whatever we collected before the failure
+        }
+        return thumbprints;
     }
 }
