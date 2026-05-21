@@ -58,10 +58,12 @@ public class ErrorMapperTests
     public void Map_RawDetailsAttachedAndTruncated()
     {
         // RawDetails should carry the truncated/collapsed stderr for the log entry.
+        // v1.3.0-alpha3 raised the cap from 500 → 4096 so download-stage stderr
+        // is captured in full.
         var longStderr = "ERROR: HTTP Error 403: Forbidden\n" + new string('x', 600);
         var r = ErrorMapper.Map(longStderr);
         Assert.NotNull(r.RawDetails);
-        Assert.True(r.RawDetails!.Length <= 500);
+        Assert.True(r.RawDetails!.Length <= 4096);
         Assert.DoesNotContain("\n", r.RawDetails);
     }
 
@@ -132,15 +134,16 @@ public class ErrorMapperTests
     }
 
     [Fact]
-    public void Map_RawDetails_TruncatedAt500Chars()
+    public void Map_RawDetails_TruncatedAt4096Chars()
     {
-        // Fix 2: even when stderr is enormous, RawDetails must stay log-line sized.
-        // 2000 'x's plus a leading ERROR token; the truncation cap is 500 chars.
-        var stderr = "ERROR: something exploded\n" + new string('x', 2000);
+        // v1.3.0-alpha3: cap bumped from 500 → 4096 so download-stage stderr
+        // (~2KB from yt-dlp's multi-client retry chatter) is captured in full.
+        // Test with a stderr larger than 4096 so we exercise the truncation.
+        var stderr = "ERROR: something exploded\n" + new string('x', 5000);
         var r = ErrorMapper.Map(stderr);
         Assert.NotNull(r.RawDetails);
-        Assert.True(r.RawDetails!.Length <= 500,
-            $"RawDetails length {r.RawDetails.Length} exceeded 500-char cap");
+        Assert.True(r.RawDetails!.Length <= 4096,
+            $"RawDetails length {r.RawDetails.Length} exceeded 4096-char cap");
     }
 
     [Fact]

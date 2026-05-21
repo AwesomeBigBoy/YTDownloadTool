@@ -72,6 +72,40 @@ public static class SystemCertBundle
     }
 
     /// <summary>
+    /// Writes a minimal OpenSSL config that lowers SECLEVEL to 0 (used as
+    /// OPENSSL_CONF). Best-effort defence-in-depth: Python builds with
+    /// OPENSSL_INIT_NO_LOAD_CONFIG ignore this, but some alternate OpenSSL
+    /// builds (or our patched yt-dlp.exe) may honour it. The actual
+    /// handshake-time SECLEVEL relaxation comes from the PyInstaller
+    /// runtime hook inside our patched yt-dlp.exe.
+    /// </summary>
+    public static bool WritePermissiveOpensslConf(string outputPath)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            const string content =
+                "openssl_conf = default_conf\n" +
+                "\n" +
+                "[default_conf]\n" +
+                "ssl_conf = ssl_sect\n" +
+                "\n" +
+                "[ssl_sect]\n" +
+                "system_default = system_default_sect\n" +
+                "\n" +
+                "[system_default_sect]\n" +
+                "CipherString = DEFAULT@SECLEVEL=0\n";
+            File.WriteAllText(outputPath, content, Encoding.ASCII);
+            return File.Exists(outputPath);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Returns SHA-1 thumbprints of every root CA currently in
     /// CurrentUser\Trusted Root Certification Authorities. Called from the
     /// Settings dialog when the user clicks the diagnostic button. Never

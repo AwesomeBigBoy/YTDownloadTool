@@ -154,14 +154,17 @@ public static class ErrorMapper
     }
 
     /// <summary>
-    /// Truncate stderr to 500 chars and collapse all whitespace runs (including newlines)
-    /// to single spaces so it fits cleanly on a single log line.
+    /// Truncate stderr and collapse all whitespace runs (including newlines)
+    /// to single spaces so it fits cleanly on a log line. v1.3.0-alpha3 bumped
+    /// the cap from 500 to 4096 chars so download-stage failures (which can
+    /// have ~2KB of stderr from yt-dlp's multiple-client retry chatter) are
+    /// captured in full rather than cut off mid-sentence.
     /// </summary>
     private static string TruncateDetails(string stderr)
     {
         if (string.IsNullOrWhiteSpace(stderr)) return "";
         var collapsed = Regex.Replace(stderr, @"\s+", " ").Trim();
-        if (collapsed.Length > 500) collapsed = collapsed.Substring(0, 500);
+        if (collapsed.Length > 4096) collapsed = collapsed.Substring(0, 4096);
         return collapsed;
     }
 

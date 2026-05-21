@@ -30,12 +30,36 @@ public sealed class AppConfig
     // relaunch.
     public bool ForceSoftwareRendering { get; set; } = false;
 
-    // Emergency fallback for managed environments where SystemCertBundle-based trust
-    // doesn't fix SSL handshake (e.g., the SSL-inspection CA isn't in any Windows
-    // root store, or IT installs it only in the user store of a non-current user).
-    // When true, yt-dlp gets --no-check-certificates. SECURITY TRADEOFF: yt-dlp
-    // will accept ANY HTTPS certificate without verification, so a hostile network
-    // could MITM the YouTube traffic. Default false; document as IT-supported toggle.
+    // Fallback for networks whose HTTPS inspection produces leaf certificates with
+    // weak keys (< 2048-bit RSA), which OpenSSL's default SECLEVEL=1 rejects during
+    // the TLS handshake before any Python-level validation runs.
+    //
+    // v1.2.5 behaviour: when true, yt-dlp's bundled OpenSSL receives:
+    //   1. OPENSSL_CONF env var pointing at openssl-permissive.cnf (best-effort —
+    //      Python's ssl module ignores it on builds compiled with
+    //      OPENSSL_INIT_NO_LOAD_CONFIG, which is the default since Python 3.8 —
+    //      we still set it for OpenSSL builds that do honour it; harmless if not)
+    //   2. --no-check-certificates CLI flag → verify_mode=CERT_NONE,
+    //      check_hostname=False. Python ssl skips ALL cert validation including
+    //      chain + hostname checks. Note: this STILL doesn't bypass OpenSSL's
+    //      SECLEVEL handshake-time check on some Python builds, but works in
+    //      practice for many endpoints whose proxy-generated cert is just barely
+    //      acceptable.
+    //
+    // History:
+    //   - v1.2.3 had only --no-check-certificates. Metadata worked, download
+    //     failed on weak-key API hosts.
+    //   - v1.2.4 tried OPENSSL_CONF only (no --no-check-certificates). Failed
+    //     because Python doesn't honour OPENSSL_CONF.
+    //   - v1.2.5 ships both → matches v1.2.3 minimum + retains the OPENSSL_CONF
+    //     env var for future compatibility.
+    //
+    // SECURITY TRADEOFF: with --no-check-certificates enabled, yt-dlp accepts
+    // ANY HTTPS certificate, regardless of issuer. On a hostile network (public
+    // wifi, attacker-controlled router) this allows MITM. Should only be enabled
+    // on networks the user trusts (corporate LAN with known SSL inspection).
+    //
+    // Default false.
     public bool AllowUntrustedCertificates { get; set; } = false;
 
     public static AppConfig CreateDefault()
