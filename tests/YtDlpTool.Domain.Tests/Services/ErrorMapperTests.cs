@@ -119,6 +119,32 @@ public class ErrorMapperTests
     }
 
     [Fact]
+    public void Map_ZeroOutputTimeout_ReturnsE_TIMEOUT02_NotE_TIMEOUT01()
+    {
+        // v1.3.3/v1.3.4: stderr consisting of nothing but the YtDlpRunner-injected
+        // "[timeout after Ns]" marker means yt-dlp.exe produced no output before
+        // being killed. Disambiguate from E-TIMEOUT01 (real network timeout) so
+        // the SSL prompt logic doesn't mis-route this as an SSL failure.
+        var r = ErrorMapper.Map("[timeout after 30s]");
+        Assert.Equal("E-TIMEOUT02", r.ErrorCode);
+        Assert.Contains("沒有產生任何輸出", r.UserMessage);
+        Assert.Contains("防毒軟體", r.UserMessage);
+        Assert.Contains("--version", r.UserMessage);
+    }
+
+    [Fact]
+    public void Map_TimeoutWithSomeOutput_StaysAsE_TIMEOUT01()
+    {
+        // Counterpart to the above: if yt-dlp wrote anything before timing out
+        // we keep the v1.2-era E-TIMEOUT01 classification.
+        const string stderr =
+            "[youtube] abc123: Downloading webpage\n" +
+            "[timeout after 30s]";
+        var r = ErrorMapper.Map(stderr);
+        Assert.Equal("E-TIMEOUT01", r.ErrorCode);
+    }
+
+    [Fact]
     public void Map_EeCertificateKeyTooWeak_ReturnsE_SSL02()
     {
         // v1.3.2 re-added the EE-key-too-weak rule (originally introduced in

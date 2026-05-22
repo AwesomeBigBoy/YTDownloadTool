@@ -21,8 +21,15 @@ public class InstalledVersionProbeTests
     }
 
     [Fact]
-    public void Compare_EmptyLocal_TreatsAsOlder()
+    public void Compare_EmptyLocal_DoesNotTriggerUpdate()
     {
-        Assert.True(InstalledVersionProbe.IsRemoteNewer("", "1.0.0"));
+        // v1.3.4: empty local version means --version probe failed (component
+        // is on disk but couldn't be launched). We deliberately do NOT mark
+        // this as "remote is newer" anymore, because the prior behaviour drove
+        // a nag-loop on environments where yt-dlp.exe cannot start under AV
+        // scanning: probe-failed → "update available" → user accepts → same
+        // binary reinstalled → next launch still probe-fails.
+        Assert.False(InstalledVersionProbe.IsRemoteNewer("", "1.0.0"));
+        Assert.False(InstalledVersionProbe.IsRemoteNewer("   ", "2026.05.01"));
     }
 }

@@ -4,7 +4,16 @@ public static class InstalledVersionProbe
 {
     public static bool IsRemoteNewer(string localVersion, string remoteVersion)
     {
-        if (string.IsNullOrWhiteSpace(localVersion)) return !string.IsNullOrWhiteSpace(remoteVersion);
+        // v1.3.4: empty local version means the --version probe failed, NOT that
+        // the component is missing from disk (yt-dlp.exe / ffmpeg.exe are always
+        // bundled in the install). The original "empty → remote is newer" rule
+        // caused a nag-loop on machines where yt-dlp.exe is on disk but refuses
+        // to launch (AV blocking PyInstaller cold-start in some environments):
+        // each launch failed the probe → update logic offered an update → user
+        // accepted → same yt-dlp.exe got reinstalled → next launch still failed.
+        // Treat "probe failed" as "unknown, leave it alone" so the user isn't
+        // pushed toward a fix that can't help.
+        if (string.IsNullOrWhiteSpace(localVersion)) return false;
         if (string.IsNullOrWhiteSpace(remoteVersion)) return false;
         var localParts = ParseParts(localVersion);
         var remoteParts = ParseParts(remoteVersion);

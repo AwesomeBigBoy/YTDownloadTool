@@ -38,13 +38,11 @@
         <!-- Aurora animated layer behind everything -->
         <views:AuroraBackground />
 
-        <!-- Update banner host -->
-        <views:UpdateBannerView x:Name="UpdateBanner" VerticalAlignment="Top" />
-
         <!-- Main content -->
         <Grid Margin="{StaticResource Space.5}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />   <!-- top bar -->
+                <RowDefinition Height="Auto" />   <!-- update banner -->
                 <RowDefinition Height="*" />      <!-- form -->
             </Grid.RowDefinitions>
 
@@ -141,8 +139,15 @@
                 </StackPanel>
             </Grid>
 
+            <!-- v1.3.4: update banner moved out of overlay position into its own grid row
+                 between the top-bar and the form. Previously the banner was a direct
+                 child of the outer Grid with VerticalAlignment=Top, which overlaid the
+                 chrome buttons (min/max/close) on the right side of the top-bar and
+                 made them unclickable when the banner was visible. -->
+            <views:UpdateBannerView x:Name="UpdateBanner" Grid.Row="1" Margin="0,8,0,0" />
+
             <!-- Form: hosts URL input, format selector, advanced options, save location, button, queue -->
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,16,0,0">
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,16,0,0">
                 <StackPanel x:Name="FormHost">
                     <views:UrlInputView x:Name="UrlInput" Margin="0,0,0,16" />
                     <views:FormatSelectorView Margin="0,0,0,16" />

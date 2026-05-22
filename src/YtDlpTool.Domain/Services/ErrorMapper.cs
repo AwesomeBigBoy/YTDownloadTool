@@ -86,12 +86,20 @@ public static class ErrorMapper
         if (System.Text.RegularExpressions.Regex.IsMatch(stderr.Trim(),
                 @"^\[timeout after \d+s\]$"))
         {
-            return new MappedError(ErrorCategory.NetworkError, "E-TIMEOUT02",
+            // v1.3.4: parameter order was (Category, UserMessage, ErrorCode, CanRetry,
+            // RawDetails). v1.3.3 had this reversed — UserMessage held "E-TIMEOUT02"
+            // and ErrorCode held the long explanation, so the UI showed only the bare
+            // code and the log file had the full sentence in the error_code field.
+            return new MappedError(ErrorCategory.NetworkError,
                 "解析網址逾時，且 yt-dlp 在 30 秒內沒有產生任何輸出。" +
                 "通常代表 yt-dlp 本身沒能正常啟動，可能原因：" +
                 "(1) 防毒軟體阻擋了 yt-dlp.exe 的執行 — 請檢查防毒隔離區並把 yt-dlp.exe 加入信任清單；" +
                 "(2) 機器資源不足或 %TEMP% 寫入受限 — 關閉其他程式後重試，或將整個資料夾移到桌面/個人目錄；" +
-                "(3) yt-dlp.exe 檔案損毀 — 請至設定 → 進階 → 重新下載元件。",
+                "(3) yt-dlp.exe 檔案損毀 — 請至設定 → 進階 → 重新下載元件；" +
+                "(4) 若以上都試過仍失敗，請開啟 cmd，切換到本資料夾的 bin 目錄，執行 " +
+                "「yt-dlp.exe --version」，看是否能在系統環境下直接執行成功。如果該指令在 cmd 內也卡住沒輸出，問題在 yt-dlp.exe 本身被系統阻擋；" +
+                "若 cmd 可以順利執行，請把該結果回報給開發者。",
+                "E-TIMEOUT02",
                 true, raw);
         }
 

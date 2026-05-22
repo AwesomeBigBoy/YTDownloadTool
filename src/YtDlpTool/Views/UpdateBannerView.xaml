@@ -3,7 +3,11 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Visibility="{Binding IsVisible, Converter={StaticResource BoolToVisibilityConverter}}"
              Height="56">
-    <Border Background="{DynamicResource Brush.Accent}" CornerRadius="0,0,12,12">
+    <!-- v1.3.4: rounded on all four corners (was 0,0,12,12). The banner used to
+         sit attached to the very top of the window so only the bottom corners
+         were rounded; now it lives in its own grid row beneath the top-bar and
+         looks cleaner as a fully rounded card. -->
+    <Border Background="{DynamicResource Brush.Accent}" CornerRadius="12">
         <Grid Margin="24,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
