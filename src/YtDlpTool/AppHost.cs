@@ -31,11 +31,7 @@ public sealed class AppHost : IDisposable
 
         ConfigStore = new ConfigStore(Paths.ConfigFile);
         Config = ConfigStore.Load();
-        if (string.IsNullOrWhiteSpace(Config.DefaultSaveDirectory))
-        {
-            Config.DefaultSaveDirectory = AppConfig.CreateDefault().DefaultSaveDirectory;
-            ConfigStore.Save(Config);
-        }
+        EnsureSaveDirectoryBelongsToCurrentUser();
         // NOTE: do not pre-create Config.DefaultSaveDirectory here — that left an empty
         // YtDlpTool folder in the user's Downloads even when they never queued a job.
         // The directory is created just-in-time by YtDlpDownloadExecutor before the
@@ -363,6 +359,53 @@ public sealed class AppHost : IDisposable
     {
         var events = StateJournal.ReadSnapshotAndClear(Paths.StateLog);
         return StateJournal.ReconstructOpenJobs(events).ToList();
+    }
+
+    /// <summary>
+    /// v1.3.4: in multi-user environments (AD / shared-machine) the app folder —
+    /// including config.json — is shared across every user who logs in. When user A
+    /// launches first, DefaultSaveDirectory is written as A's desktop. If user B then
+    /// logs in and launches the same app, they inherit A's path → yt-dlp fails with
+    /// [WinError 5] Access Denied because B can't write to A's profile.
+    ///
+    /// Fix: on every startup, detect whether the configured save directory lives under
+    /// a DIFFERENT Windows user's profile folder. If so, silently reset it to the
+    /// current user's desktop. Custom paths outside C:\Users (e.g. D:\Videos) are
+    /// left alone — they're deliberate.
+    /// </summary>
+    private void EnsureSaveDirectoryBelongsToCurrentUser()
+    {
+        var currentDesktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        var currentDefault = Path.Combine(currentDesktop, "YtVideo");
+
+        if (string.IsNullOrWhiteSpace(Config.DefaultSaveDirectory))
+        {
+            Config.DefaultSaveDirectory = currentDefault;
+            ConfigStore.Save(Config);
+            return;
+        }
+
+        try
+        {
+            var currentUserProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var usersRoot = Path.GetDirectoryName(currentUserProfile);
+            if (usersRoot is null) return;
+
+            var normalized = Path.GetFullPath(Config.DefaultSaveDirectory);
+            var usersPrefix = usersRoot + Path.DirectorySeparatorChar;
+
+            if (normalized.StartsWith(usersPrefix, StringComparison.OrdinalIgnoreCase) &&
+                !normalized.StartsWith(currentUserProfile + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+                !normalized.Equals(currentUserProfile, StringComparison.OrdinalIgnoreCase))
+            {
+                Config.DefaultSaveDirectory = currentDefault;
+                ConfigStore.Save(Config);
+            }
+        }
+        catch
+        {
+            // Path.GetFullPath can throw on malformed paths. Don't crash startup.
+        }
     }
 
     public void Dispose()
