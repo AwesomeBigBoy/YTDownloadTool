@@ -23,8 +23,26 @@ $files = @(
         path = Join-Path $PortableDir 'YtDlpTool.exe'; rel = 'YtDlpTool.exe'
     },
     @{
-        name = 'yt-dlp.exe'; component = 'YtDlp'; version = $YtDlpVersion
-        path = Join-Path $PortableDir 'bin\yt-dlp.exe'; rel = 'bin\yt-dlp.exe'
+        # v1.4.0: yt-dlp ships as a --onedir build, delivered as a zip.
+        #
+        # This stays an ORDINARY manifest entry on purpose. UpdateApplier
+        # downloads it, verifies its SHA-256 and Sigstore signature, and moves it
+        # into place with backup-and-rollback exactly like any other file — it has
+        # no idea the payload is a directory, and needed no changes. The app
+        # expands bin\yt-dlp-pkg.zip into bin\yt-dlp\ on its next launch (see
+        # src/YtDlpTool.Process/YtDlpLayout.cs). Teaching the updater to swap
+        # directories would have meant changing the one component whose failure
+        # cannot be repaired remotely.
+        #
+        # Clients older than v1.4.0 handle this safely too: to them it is just a
+        # file they never execute, and their existing bin\yt-dlp.exe keeps working
+        # until the app binary that understands the package is installed.
+        #
+        # `version` MUST equal what `yt-dlp --version` prints on the user's
+        # machine. UpdateChecker compares the two, so any drift produces a
+        # permanent "update available" prompt that never clears.
+        name = 'yt-dlp-pkg.zip'; component = 'YtDlp'; version = $YtDlpVersion
+        path = Join-Path $PortableDir 'bin\yt-dlp-pkg.zip'; rel = 'bin\yt-dlp-pkg.zip'
     },
     @{
         name = 'ffmpeg.exe'; component = 'Ffmpeg'; version = $FfmpegVersion

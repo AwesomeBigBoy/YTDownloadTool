@@ -32,11 +32,19 @@ New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 # bin/ for the manifest. If yt-dlp.exe is missing, warn but don't fail — that
 # lets local-dev runs of this script (without the build step) still complete
 # so devs can iterate on ffmpeg handling.
-$ytDlpDest = Join-Path $binDir 'yt-dlp.exe'
-if (Test-Path $ytDlpDest) {
-    $ytdlpSha = (Get-FileHash -Algorithm SHA256 -Path $ytDlpDest).Hash.ToLowerInvariant()
+# v1.4.0: yt-dlp is now a --onedir build living in bin/yt-dlp/, not a single
+# bin/yt-dlp.exe. Accept either so this script keeps working while a dev has an
+# older tree around.
+$ytDlpDirExe = Join-Path $binDir 'yt-dlp/yt-dlp.exe'
+$ytDlpFlatExe = Join-Path $binDir 'yt-dlp.exe'
+if (Test-Path $ytDlpDirExe) {
+    $ytdlpSha = (Get-FileHash -Algorithm SHA256 -Path $ytDlpDirExe).Hash.ToLowerInvariant()
+    Write-Host "yt-dlp layout: onedir (bin/yt-dlp/)"
+} elseif (Test-Path $ytDlpFlatExe) {
+    $ytdlpSha = (Get-FileHash -Algorithm SHA256 -Path $ytDlpFlatExe).Hash.ToLowerInvariant()
+    Write-Host "yt-dlp layout: legacy onefile (bin/yt-dlp.exe)"
 } else {
-    Write-Warning "yt-dlp.exe not present in $binDir. Run build/build-patched-ytdlp.ps1 before this script for a real release build."
+    Write-Warning "yt-dlp not present in $binDir. Run build/build-patched-ytdlp.ps1 before this script for a real release build."
     $ytdlpSha = '<not-built>'
 }
 

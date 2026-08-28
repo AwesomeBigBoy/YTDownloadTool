@@ -109,7 +109,10 @@ jobs:
           $env:COSIGN_EXPERIMENTAL = '1'
           cosign sign-blob --yes --bundle "$stage/manifest.json.sigstore" "$stage/manifest.json"
           cosign sign-blob --yes --bundle "$stage/YtDlpTool.exe.sigstore" "$stage/YtDlpTool.exe"
-          cosign sign-blob --yes --bundle "$stage/yt-dlp.exe.sigstore"    "$stage/bin/yt-dlp.exe"
+          # v1.4.0: yt-dlp is a --onedir build now, so the signed artefact is the
+          # package the updater delivers (bin/yt-dlp-pkg.zip) rather than a single
+          # exe. One signature covers the whole payload.
+          cosign sign-blob --yes --bundle "$stage/yt-dlp-pkg.zip.sigstore" "$stage/bin/yt-dlp-pkg.zip"
           cosign sign-blob --yes --bundle "$stage/ffmpeg.exe.sigstore"    "$stage/bin/ffmpeg.exe"
           cosign sign-blob --yes --bundle "$stage/ffprobe.exe.sigstore"   "$stage/bin/ffprobe.exe"
 
@@ -118,6 +121,25 @@ jobs:
         shell: pwsh
         run: |
           $stage = "${{ steps.portable.outputs.stageDir }}"
+
+          # v1.4.0: bin/yt-dlp-pkg.zip is an UPDATER asset, not part of a fresh
+          # install. A fresh download already contains bin/yt-dlp/ expanded, so
+          # leaving the package inside the portable zip would ship ~40 MB that the
+          # app expands over the identical directory and then deletes. Move it out
+          # before packing; it is uploaded to the release from here instead.
+          $pkgSrc = Join-Path $stage 'bin/yt-dlp-pkg.zip'
+          $pkgOut = Join-Path $env:RUNNER_TEMP 'yt-dlp-pkg.zip'
+          if (-not (Test-Path $pkgSrc)) { throw "Expected $pkgSrc — build-patched-ytdlp.ps1 did not produce the onedir package" }
+          Move-Item -Path $pkgSrc -Destination $pkgOut -Force
+          "pkgPath=$pkgOut" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+          # Sanity-check the layout users actually receive: a portable zip without
+          # bin/yt-dlp/yt-dlp.exe is a broken release, and shipping it is worse
+          # than failing the build.
+          if (-not (Test-Path (Join-Path $stage 'bin/yt-dlp/yt-dlp.exe'))) {
+            throw "Portable stage is missing bin/yt-dlp/yt-dlp.exe"
+          }
+
           $zipName = "YtDlpTool-${{ steps.ver.outputs.tag }}-win-x64.zip"
           $zipPath = Join-Path $env:RUNNER_TEMP $zipName
           Compress-Archive -Path "$stage\*" -DestinationPath $zipPath -Force
@@ -138,8 +160,8 @@ jobs:
             "$stage/manifest.json.sigstore",
             "$stage/YtDlpTool.exe",
             "$stage/YtDlpTool.exe.sigstore",
-            "$stage/bin/yt-dlp.exe",
-            "$stage/yt-dlp.exe.sigstore",
+            "${{ steps.zip.outputs.pkgPath }}",
+            "$stage/yt-dlp-pkg.zip.sigstore",
             "$stage/bin/ffmpeg.exe",
             "$stage/ffmpeg.exe.sigstore",
             "$stage/bin/ffprobe.exe",

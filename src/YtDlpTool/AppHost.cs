@@ -119,14 +119,37 @@ public sealed class AppHost : IDisposable
 
         StateJournal = new StateJournal(Paths.StateLog);
 
-        var ytDlpExe  = Path.Combine(Paths.BinDirectory, "yt-dlp.exe");
+        // v1.4.0: expand the packaged one-directory yt-dlp if an update delivered one.
+        // Must happen BEFORE ResolveExecutable so this launch already uses it. See
+        // YtDlpLayout for why yt-dlp is no longer a single self-extracting exe.
+        var expand = YtDlpLayout.ExpandPackageIfPresent(Paths.BinDirectory, out var expandError);
+        if (expand != ExpandOutcome.NothingToDo)
+        {
+            Logger.Info("ytdlp.package.expand", new Dictionary<string, string>
+            {
+                ["result"] = expand == ExpandOutcome.Expanded ? "ok" : "failed",
+                ["error"]  = expandError ?? "",
+            });
+        }
+
+        var ytDlpExe  = YtDlpLayout.ResolveExecutable(Paths.BinDirectory);
         var ffmpegExe = Path.Combine(Paths.BinDirectory, "ffmpeg.exe");
+        Logger.Info("ytdlp.executable", new Dictionary<string, string>
+        {
+            // "dir" = the fast one-directory build; "legacy" = the old self-extracting
+            // single file, which costs ~20s of extraction on every single run.
+            ["layout"] = ytDlpExe.Equals(YtDlpLayout.DirectoryExePath(Paths.BinDirectory), StringComparison.OrdinalIgnoreCase)
+                ? "dir" : "legacy",
+            ["exists"] = File.Exists(ytDlpExe) ? "true" : "false",
+        });
         YtDlp  = new YtDlpRunner(
             ytDlpExe,
             allowUntrustedCerts: Config.AllowUntrustedCertificates,
             caBundlePath: injectableCaBundle,
             opensslConfPath: injectableOpensslConf,
-            logger: Logger);
+            logger: Logger,
+            // v1.4.0: must be explicit. yt-dlp no longer sits next to ffmpeg.exe.
+            ffmpegPath: ffmpegExe);
         Ffmpeg = new FfmpegRunner(ffmpegExe);
 
         Logger.Info("ytdlp.ca-bundle.inject", new Dictionary<string, string>
@@ -428,7 +451,12 @@ public sealed class AppHost : IDisposable
         try
         {
             var args = new ProcessStartArguments(
-                ExecutablePath: Path.Combine(Paths.BinDirectory, "yt-dlp.exe"),
+                // v1.4.0: must resolve the same way YtDlpRunner does. Probing a
+                // different binary than the one that does the work is how you get a
+                // version number that does not match reality — and UpdateChecker
+                // compares this string against the manifest, so a mismatch means a
+                // permanent "update available" prompt.
+                ExecutablePath: YtDlpLayout.ResolveExecutable(Paths.BinDirectory),
                 Arguments: new[] { "--version" },
                 Timeout: timeout ?? TimeSpan.FromSeconds(30),
                 StdoutByteLimit: 64 * 1024);

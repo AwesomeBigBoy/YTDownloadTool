@@ -1,12 +1,13 @@
 {
   "yt-dlp": {
-    "version": "2026.03.17",
+    "version": "2026.08.19",
     "_comment_v1.3.0": "v1.3.0+ builds yt-dlp.exe from upstream source via build/build-patched-ytdlp.ps1 instead of downloading the prebuilt binary. The runtime hook in build/yt-dlp-patch/ lowers OpenSSL SECLEVEL when the env var YTDLP_RELAX_SECLEVEL=1 is set; otherwise yt-dlp behaves identically to upstream. See build/yt-dlp-patch/README.md for the audit trail.",
+    "_comment_v1.4.0": "Built with PyInstaller --onedir, not --onefile, and shipped as bin/yt-dlp-pkg.zip. An onefile binary re-extracts its whole ~40MB bundle to a fresh %TEMP%/_MEIxxxxxx on EVERY run, so AV rescans it every time: two field machines measured 18-24s of that before yt-dlp ran a single line of its own code. See src/YtDlpTool.Process/YtDlpLayout.cs. The version bump from 2026.03.17 is REQUIRED, not incidental: UpdateChecker compares this string against what `yt-dlp --version` reports on the user's machine, so an unchanged version means existing installs would never be offered the new layout.",
     "upstream_repo": "https://github.com/yt-dlp/yt-dlp",
-    "upstream_tag": "2026.03.17",
-    "upstream_source_zip_sha256": "f5b3dfe472c673a98d023ff555ea8a7a72323512bf9073f29a23495d858b7230",
-    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.03.17/yt-dlp.exe",
-    "sha256": "3db811b366b2da47337d2fcfdfe5bbd9a258dad3f350c54974f005df115a1545"
+    "upstream_tag": "2026.08.19",
+    "upstream_source_zip_sha256": "ca8070b2c4c6de9e65a330ff7c01d6e0b25b128f32e3a6d323333fc2f5208005",
+    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe",
+    "sha256": ""
   },
   "ffmpeg": {
     "version": "8.1.1-essentials_build",

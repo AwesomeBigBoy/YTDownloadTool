@@ -11,10 +11,12 @@ public sealed class YtDlpRunner
     private readonly string? _caBundlePath;
     private readonly string? _opensslConfPath;
     private readonly AppLogger? _logger;
+    private readonly string? _ffmpegPath;
 
-    public YtDlpRunner(string executable, bool allowUntrustedCerts = false, string? caBundlePath = null, string? opensslConfPath = null, AppLogger? logger = null)
+    public YtDlpRunner(string executable, bool allowUntrustedCerts = false, string? caBundlePath = null, string? opensslConfPath = null, AppLogger? logger = null, string? ffmpegPath = null)
     {
         _executable = executable;
+        _ffmpegPath = ffmpegPath;
         _allowUntrustedCerts = allowUntrustedCerts;
         _caBundlePath = caBundlePath;
         _opensslConfPath = opensslConfPath;
@@ -566,10 +568,20 @@ public sealed class YtDlpRunner
     /// directory or PATH because the app runs from a single-file extracted location that
     /// is NOT on PATH. Without this, clip extraction + audio re-mux can silently fail
     /// with "ffmpeg not found" inside the user's clip output.
+    ///
+    /// v1.4.0: the path is supplied by the caller. It used to be derived as a sibling of
+    /// the yt-dlp executable, which held only while both lived in bin\. The --onedir
+    /// yt-dlp lives in bin\yt-dlp\, so the derived path pointed at bin\yt-dlp\ffmpeg.exe,
+    /// File.Exists said no, and this method yielded NOTHING — dropping the flag silently
+    /// and breaking every merge/clip/audio path with "ffmpeg not found". Deriving one
+    /// component's location from another's is the bug; pass it in.
     /// </summary>
     private IEnumerable<string> BuildFfmpegLocationArgs()
     {
-        var ffmpegPath = Path.Combine(Path.GetDirectoryName(_executable) ?? "", "ffmpeg.exe");
+        var ffmpegPath = _ffmpegPath;
+        if (string.IsNullOrEmpty(ffmpegPath))
+            ffmpegPath = Path.Combine(Path.GetDirectoryName(_executable) ?? "", "ffmpeg.exe");
+
         if (File.Exists(ffmpegPath))
         {
             yield return "--ffmpeg-location";
