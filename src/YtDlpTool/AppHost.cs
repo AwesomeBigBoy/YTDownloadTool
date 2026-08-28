@@ -328,6 +328,11 @@ public sealed class AppHost : IDisposable
         var ytDlp = await EnsureYtDlpReadyAsync().ConfigureAwait(false);
         var healthy = !string.IsNullOrWhiteSpace(ytDlp);
 
+        // v1.3.8: hand the measured cold start to the runner so every later timeout
+        // budgets for it. Only on success — a failed warm-up hit the 180s ceiling and
+        // says nothing about how long a working cold start takes here.
+        if (healthy) YtDlp.ObservedColdStart = sw.Elapsed;
+
         Logger.Info("health.ytdlp", new Dictionary<string, string>
         {
             ["ok"]         = healthy ? "true" : "false",

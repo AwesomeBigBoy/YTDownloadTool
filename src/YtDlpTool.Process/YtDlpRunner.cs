@@ -21,6 +21,36 @@ public sealed class YtDlpRunner
         _logger = logger;
     }
 
+    /// <summary>
+    /// Measured cost of one yt-dlp cold start on THIS machine, set by AppHost from the
+    /// startup warm-up. Added to every operation timeout.
+    ///
+    /// v1.3.8. The 30s metadata budget was written as "time for yt-dlp to do its job",
+    /// but a PyInstaller onefile binary re-extracts its whole ~30 MB bundle into a
+    /// brand-new %TEMP%\_MEIxxxxxx on EVERY run — warming the OS/AV caches helps, but
+    /// nothing carries over between processes. Field log 2026-08-28 (UHD 710):
+    /// `warmup_ms=24124`, and then a *subsequent* metadata call still reported
+    /// `first_output_ms=18551`. So ~18-24s of the 30s was spent before yt-dlp did any
+    /// work at all, leaving 6-12s for the network. That is enough on a plain network
+    /// and not enough behind an HTTPS-inspecting proxy — which is exactly what the
+    /// reporter observed: the same build works on non-inspected segments.
+    ///
+    /// Scaling the budget by what we actually measured beats guessing a bigger
+    /// constant: fast machines keep their tight timeout, slow ones get the headroom
+    /// they demonstrably need.
+    /// </summary>
+    public TimeSpan ObservedColdStart { get; set; } = TimeSpan.Zero;
+
+    private TimeSpan Budget(TimeSpan work)
+    {
+        // Cap the added headroom so a pathological warm-up measurement can't turn an
+        // interactive action into an unbounded wait.
+        var coldStart = ObservedColdStart > MaxColdStartAllowance ? MaxColdStartAllowance : ObservedColdStart;
+        return work + coldStart;
+    }
+
+    private static readonly TimeSpan MaxColdStartAllowance = TimeSpan.FromSeconds(60);
+
     // v1.1.19: structured invocation log. Distinguishes "Python startup hung"
     // (no first-output ms, no bytes) from "network call hung" (some bytes,
     // first-output ms < 1s) from "fragment retry loop" (lots of bytes,
@@ -182,10 +212,11 @@ public sealed class YtDlpRunner
             fetchArgs.Add(url);
 
             var extraEnv = BuildExtraEnv();
+            var metadataTimeout = Budget(TimeSpan.FromSeconds(30));
             var args = new ProcessStartArguments(
                 ExecutablePath: _executable,
                 Arguments: fetchArgs,
-                Timeout: TimeSpan.FromSeconds(30),
+                Timeout: metadataTimeout,
                 ExtraEnv: extraEnv);
 
             LogInvokeBegin("metadata", fetchArgs, url, extraEnv);
@@ -198,7 +229,11 @@ public sealed class YtDlpRunner
             if (exit.ExitCode != 0 || exit.TimedOut || exit.Cancelled)
             {
                 var diag = BuildDiagnostics(exit);
-                if (exit.TimedOut) diag = "[timeout after 30s]\n" + diag;
+                // The marker text is a CONTRACT with ErrorMapper's E-TIMEOUT02 rule,
+                // which matches ^\[timeout after \d+s\]$ to detect a zero-output kill.
+                // Keep the shape; only the number varies now that the budget is scaled
+                // by the machine's measured cold start.
+                if (exit.TimedOut) diag = $"[timeout after {(int)metadataTimeout.TotalSeconds}s]\n" + diag;
                 else if (exit.Cancelled) diag = "[cancelled]\n" + diag;
                 return new MetadataFetchResult(false, null, diag);
             }

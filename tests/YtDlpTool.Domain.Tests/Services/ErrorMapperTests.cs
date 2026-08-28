@@ -144,6 +144,16 @@ public class ErrorMapperTests
         Assert.Contains("防毒軟體", r.UserMessage);
         Assert.Contains("--version", r.UserMessage);
 
+        // v1.3.8: the metadata budget is no longer a fixed 30s — YtDlpRunner scales it
+        // by the machine's measured cold start, so the marker carries whatever number
+        // was actually used. The zero-output rule must key on the SHAPE, not on "30".
+        foreach (var marker in new[] { "[timeout after 30s]", "[timeout after 54s]", "[timeout after 90s]" })
+        {
+            var scaled = ErrorMapper.Map(marker);
+            Assert.Equal("E-TIMEOUT02", scaled.ErrorCode);
+            Assert.Equal(ErrorCategory.ComponentMissing, scaled.Category);
+        }
+
         // v1.3.6: the category must NOT be NetworkError. Nothing about a child that
         // produced zero bytes is a network failure, and `url.parse.failed
         // category=NetworkError` in the log sent every reader of the 2026-08 report

@@ -65,7 +65,15 @@ public partial class UrlInputView : UserControl
     {
         var vm = Vm; if (vm is null) return;
         _inFlightCts?.Cancel();
-        _inFlightCts = new CancellationTokenSource();
+        // v1.3.8: capture the CTS in a local. Every use below MUST go through `cts`,
+        // never through the _inFlightCts field — a newer parse reassigns that field
+        // while this call is suspended, so reading it later resolves to the SUCCESSOR's
+        // token and this call sails on uncancelled. Latent since the field was
+        // introduced; v1.3.7's `await warmup` made the suspension long enough to hit
+        // in practice. Field log 2026-08-28: two url.parse.started for one url_hash
+        // 2.8s apart, then two concurrent metadata processes that starved each other.
+        var cts = new CancellationTokenSource();
+        _inFlightCts = cts;
         ParsingBar.Visibility = Visibility.Visible;
         vm.IsParsing = true;
 
@@ -89,10 +97,13 @@ public partial class UrlInputView : UserControl
             if (!warmup.IsCompleted)
             {
                 ShowHint("元件首次啟動中，請稍候…（防毒軟體正在檢查，僅第一次需要）");
-                await warmup;
+                // WaitAsync so a newer parse can abandon this wait instead of queueing
+                // behind it and then launching a second yt-dlp alongside the first.
+                await warmup.WaitAsync(cts.Token);
             }
+            cts.Token.ThrowIfCancellationRequested();
 
-            var result = await vm.Host.YtDlp.FetchMetadataAsync(url, _inFlightCts.Token);
+            var result = await vm.Host.YtDlp.FetchMetadataAsync(url, cts.Token);
             if (!result.IsSuccess || result.Metadata is null)
             {
                 var mapped = vm.Host.YtDlp is null ? null : Domain.Services.ErrorMapper.Map(result.ErrorStderr ?? "");
