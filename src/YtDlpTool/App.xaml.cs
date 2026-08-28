@@ -80,6 +80,8 @@ public partial class App : Application
 
         WriteEarlyDiag("startup.complete", null);
         _ = Host!.StartBackgroundUpdateCheckAsync(_appShutdown.Token);
+        // v1.3.6: runs every launch, independent of the update-check cadence.
+        _ = Host!.RunStartupHealthCheckAsync(_appShutdown.Token);
     }
 
     // Render-mode fallback chain — fixes the "white window of doom" on Intel HD/UHD

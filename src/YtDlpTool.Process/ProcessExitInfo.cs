@@ -24,4 +24,9 @@ public sealed record ProcessExitInfo(
     long StdoutBytes = 0,
     long StderrBytes = 0,
     // v1.1.19: PID of the child for log correlation. 0 when Process.Start failed.
-    int Pid = 0);
+    int Pid = 0,
+    // v1.3.6: ms spent inside Process.Start itself. The timeout watchdog only begins
+    // after Start returns, so this is time the user waits that the "[timeout after
+    // Ns]" message does not account for. A large value points at AV/EDR scanning the
+    // binary on CreateProcess, or a cold read from slow/network storage.
+    long StartMs = 0);

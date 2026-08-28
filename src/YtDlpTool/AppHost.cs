@@ -260,6 +260,53 @@ public sealed class AppHost : IDisposable
     }
 
     public UpdateBannerViewModel BannerVm { get; } = new();
+    public HealthBannerViewModel HealthVm { get; } = new();
+
+    /// <summary>
+    /// v1.3.6: verify the component that does all the actual work can start at all,
+    /// and say so up front if it cannot.
+    ///
+    /// This deliberately does NOT live inside StartBackgroundUpdateCheckAsync. That
+    /// method returns early on <c>ShouldCheckNow</c>, so on any machine whose update
+    /// frequency is Never — or simply already checked today — the probe never ran and
+    /// nobody found out yt-dlp was broken until a parse timed out 38 seconds later.
+    /// Health is not an update concern; it runs every launch.
+    /// </summary>
+    public async Task RunStartupHealthCheckAsync(CancellationToken ct)
+    {
+        // Same 5s settle delay as the update check: let the first frame render before
+        // competing for a cold-start disk read of a ~30 MB binary.
+        try { await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false); }
+        catch (TaskCanceledException) { return; }
+
+        var ytDlp = await ProbeYtDlpVersionAsync().ConfigureAwait(false);
+        var healthy = !string.IsNullOrWhiteSpace(ytDlp);
+
+        Logger.Info("health.ytdlp", new Dictionary<string, string>
+        {
+            ["ok"]      = healthy ? "true" : "false",
+            ["version"] = healthy ? ytDlp : "(no-response)",
+        });
+
+        if (healthy || ct.IsCancellationRequested) return;
+
+        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            HealthVm.Headline = "yt-dlp 元件沒有回應，下載功能目前無法使用";
+            HealthVm.Details =
+                "啟動檢查時，yt-dlp.exe 在時限內沒有回報版本號。這代表元件本身無法啟動，" +
+                "與網路連線無關——在這個狀態下解析網址一定會逾時失敗。\n\n" +
+                "請依序嘗試：\n\n" +
+                "1. 把整個程式資料夾移出「下載」資料夾，改放到桌面或個人目錄，然後重新開啟。" +
+                "從瀏覽器下載的壓縮檔解壓後會帶有封鎖標記，防毒對這類檔案的檢查特別嚴格。\n\n" +
+                "2. 檢查防毒軟體的隔離區，若 yt-dlp.exe 被隔離，請還原並加入信任清單。\n\n" +
+                "3. 至「設定 → 進階 → 重新下載元件」重新取得 yt-dlp.exe。\n\n" +
+                "4. 若以上都無效，請開啟命令提示字元，切換到本程式的 bin 目錄執行 " +
+                "「yt-dlp.exe --version」。若該指令在命令提示字元中也沒有輸出，" +
+                "問題出在系統阻擋了這支程式；若可以正常執行，請把 logs 資料夾內的紀錄檔回報給開發者。";
+            HealthVm.IsVisible = true;
+        });
+    }
 
     public async Task StartBackgroundUpdateCheckAsync(CancellationToken ct)
     {

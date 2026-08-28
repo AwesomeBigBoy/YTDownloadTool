@@ -7,6 +7,116 @@ public class ProcessSandboxTests
     private static readonly string CmdPath =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
 
+    // ── v1.3.6 environment-inheritance regression guard ─────────────────────────
+    //
+    // READ THIS BEFORE CHANGING ConfigureSandboxedEnvironment.
+    //
+    // EnvironmentVariables.Clear() has been added, removed (91b2a62, v1.1.18) and
+    // silently re-added by an unrelated revert (a4c0668, v1.1.27) once already. Each
+    // time it is present, PyInstaller-frozen yt-dlp.exe can hang on cold start with
+    // ZERO bytes on both pipes — which the log renders as an ordinary network
+    // timeout, so the cost of rediscovering it is days, not minutes.
+    //
+    // These three tests pin the contract: inherit everything, subtract the Python
+    // hijack vars, override PATH.
+
+    [Fact]
+    public async Task Run_InheritsParentEnvironment()
+    {
+        const string name = "YTDLPTOOL_INHERIT_PROBE";
+        Environment.SetEnvironmentVariable(name, "inherited-value");
+        try
+        {
+            var lines = new List<string>();
+            var args = new ProcessStartArguments(
+                ExecutablePath: CmdPath,
+                Arguments: new[] { "/c", "set" });
+            var result = await ProcessSandbox.RunAsync(args, l => lines.Add(l.Text));
+            Assert.Equal(0, result.ExitCode);
+            Assert.Contains(lines, l =>
+                l.Equals($"{name}=inherited-value", StringComparison.OrdinalIgnoreCase));
+        }
+        finally { Environment.SetEnvironmentVariable(name, null); }
+    }
+
+    [Fact]
+    public async Task Run_InheritsWindowsCoreVarsPyInstallerNeeds()
+    {
+        // The v1.1.16 allowlist covered proxy/SSL/user-profile vars but none of the
+        // core Windows ones. Frozen-Python startup and the security DLLs that managed
+        // desktops inject into every new process read these.
+        var lines = new List<string>();
+        var args = new ProcessStartArguments(
+            ExecutablePath: CmdPath,
+            Arguments: new[] { "/c", "set" });
+        var result = await ProcessSandbox.RunAsync(args, l => lines.Add(l.Text));
+        Assert.Equal(0, result.ExitCode);
+
+        foreach (var required in new[] { "SystemDrive", "SystemRoot", "ProgramData", "COMSPEC" })
+        {
+            Assert.True(
+                lines.Any(l => l.StartsWith(required + "=", StringComparison.OrdinalIgnoreCase)),
+                $"child environment is missing {required} — the allowlist strip is back");
+        }
+    }
+
+    [Fact]
+    public async Task Run_StripsPythonHijackVars()
+    {
+        Environment.SetEnvironmentVariable("PYTHONPATH", @"C:\attacker\modules");
+        Environment.SetEnvironmentVariable("PYTHONHOME", @"C:\attacker\python");
+        try
+        {
+            var lines = new List<string>();
+            var args = new ProcessStartArguments(
+                ExecutablePath: CmdPath,
+                Arguments: new[] { "/c", "set" });
+            var result = await ProcessSandbox.RunAsync(args, l => lines.Add(l.Text));
+            Assert.Equal(0, result.ExitCode);
+            Assert.DoesNotContain(lines, l => l.StartsWith("PYTHONPATH=", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(lines, l => l.StartsWith("PYTHONHOME=", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PYTHONPATH", null);
+            Environment.SetEnvironmentVariable("PYTHONHOME", null);
+        }
+    }
+
+    [Fact]
+    public async Task Run_RecordsProcessStartDuration()
+    {
+        // StartMs is the gap the "[timeout after Ns]" message never accounted for.
+        var args = new ProcessStartArguments(
+            ExecutablePath: CmdPath,
+            Arguments: new[] { "/c", "echo start-timing" });
+        var result = await ProcessSandbox.RunAsync(args);
+        Assert.Equal(0, result.ExitCode);
+        Assert.InRange(result.StartMs, 0, 30_000);
+    }
+
+    [Theory]
+    [InlineData(@"\\fileserver\profiles\user\temp", true)]
+    [InlineData(@"\\10.0.0.5\share\temp\", true)]
+    [InlineData(@"C:\Users\someone\AppData\Local\Temp\", false)]
+    [InlineData(@"\\?\C:\Users\someone\AppData\Local\Temp\", false)]
+    [InlineData(@"\\?\UNC\fileserver\profiles\temp", true)]
+    [InlineData("", false)]
+    public void IsNetworkPath_ClassifiesUncAndLocalPaths(string path, bool expected)
+    {
+        Assert.Equal(expected, ProcessSandbox.IsNetworkPath(path));
+    }
+
+    [Fact]
+    public void ResolveChildTempDirectory_NeverReturnsNetworkPath()
+    {
+        // PyInstaller onefile re-extracts its whole bundle to %TEMP% on EVERY run, so
+        // a redirected %TEMP% on a network share blows past the watchdog with no output.
+        var resolved = ProcessSandbox.ResolveChildTempDirectory();
+        Assert.False(string.IsNullOrWhiteSpace(resolved));
+        Assert.False(ProcessSandbox.IsNetworkPath(resolved));
+    }
+
     [Fact]
     public async Task Run_SimpleEcho_ReceivesStdoutLine()
     {

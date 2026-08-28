@@ -144,7 +144,13 @@
                  child of the outer Grid with VerticalAlignment=Top, which overlaid the
                  chrome buttons (min/max/close) on the right side of the top-bar and
                  made them unclickable when the banner was visible. -->
-            <views:UpdateBannerView x:Name="UpdateBanner" Grid.Row="1" Margin="0,8,0,0" />
+            <!-- v1.3.6: HealthBannerView stacks above the update banner. Both are
+                 Height=56 + Collapsed when inactive, so the row stays 0-high until
+                 one of them has something to say. -->
+            <StackPanel Grid.Row="1" Orientation="Vertical">
+                <views:HealthBannerView x:Name="HealthBanner" Margin="0,8,0,0" />
+                <views:UpdateBannerView x:Name="UpdateBanner" Margin="0,8,0,0" />
+            </StackPanel>
 
             <!-- Form: hosts URL input, format selector, advanced options, save location, button, queue -->
             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,16,0,0">

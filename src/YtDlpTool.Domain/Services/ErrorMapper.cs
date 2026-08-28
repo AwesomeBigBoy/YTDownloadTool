@@ -90,7 +90,13 @@ public static class ErrorMapper
             // RawDetails). v1.3.3 had this reversed — UserMessage held "E-TIMEOUT02"
             // and ErrorCode held the long explanation, so the UI showed only the bare
             // code and the log file had the full sentence in the error_code field.
-            return new MappedError(ErrorCategory.NetworkError,
+            //
+            // v1.3.6: category was NetworkError, which contradicted this very message
+            // ("yt-dlp 本身沒能正常啟動") and made `url.parse.failed category=NetworkError`
+            // in the log point every reader at the network. Nothing here is a network
+            // failure: the child never even produced output. ComponentMissing matches
+            // E-BLOCK01/E-COMP001, the other "the binary would not run" cases.
+            return new MappedError(ErrorCategory.ComponentMissing,
                 "解析網址逾時，且 yt-dlp 在 30 秒內沒有產生任何輸出。" +
                 "通常代表 yt-dlp 本身沒能正常啟動，可能原因：" +
                 "(1) 防毒軟體阻擋了 yt-dlp.exe 的執行 — 請檢查防毒隔離區並把 yt-dlp.exe 加入信任清單；" +

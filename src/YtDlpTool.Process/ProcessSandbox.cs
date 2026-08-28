@@ -88,10 +88,16 @@ public static class ProcessSandbox
         // Surface a friendly diagnostic via ProcessExitInfo.Stderr so the rest of the
         // failure pipeline (ErrorMapper, log lines) can act on it instead of an
         // opaque Win32Exception bubbling to the UI.
+        // v1.3.6: the watchdog below only starts counting AFTER Process.Start returns,
+        // so a slow CreateProcess (AV scanning an unsigned binary, a cold page-in from
+        // a network share) is invisible in the log and shows up only as "the 30s
+        // timeout actually took 38s". Measure it explicitly.
+        long startMs;
         try
         {
             if (!process.Start())
                 return new ProcessExitInfo(-1, "Process.Start returned false (no further detail)", false, false, false, false);
+            startMs = startStopwatch.ElapsedMilliseconds;
         }
         catch (System.ComponentModel.Win32Exception wex)
         {
@@ -144,7 +150,8 @@ public static class ProcessSandbox
             TimeToFirstOutputMs: firstOutputMs == -1 ? null : firstOutputMs,
             StdoutBytes: Interlocked.Read(ref stdoutBytes),
             StderrBytes: Interlocked.Read(ref stderrBytes),
-            Pid: SafePid(process));
+            Pid: SafePid(process),
+            StartMs: startMs);
     }
 
     private static int SafePid(System.Diagnostics.Process p)
@@ -166,55 +173,67 @@ public static class ProcessSandbox
         try { await Task.Delay(KillGrace, CancellationToken.None).ConfigureAwait(false); } catch { }
     }
 
-    // Env vars we DELIBERATELY pass through from the parent process. The strip was
-    // initially "out of paranoia" (defend PATH hijack per spec §5.2) but was too
-    // aggressive: managed environments set HTTP_PROXY/HTTPS_PROXY via GPO and
-    // yt-dlp/Python only sees the proxy via these env vars. The whitelist below
-    // covers the env vars yt-dlp / PyInstaller actually need. PATH itself stays
-    // sandboxed (rewritten to <bin>;<system32>) — we still don't inherit the
-    // user's PATH because that's the actual hijack vector.
-    private static readonly string[] PassThroughEnvVars =
+    // Python-specific env vars we STRIP from the inherited environment. These are the
+    // real hijack vectors for a frozen-Python child: PYTHONPATH / PYTHONHOME can point
+    // the interpreter at attacker-controlled modules, PYTHONSTARTUP names a script to
+    // execute. Everything else is inherited (see ConfigureSandboxedEnvironment).
+    private static readonly string[] StrippedEnvVars =
     {
-        // Proxy configuration — primary reason this list exists.
-        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
-        "http_proxy", "https_proxy", "no_proxy",
-        "ALL_PROXY", "all_proxy",
-
-        // SSL / CA bundle — managed networks with SSL inspection point Python urllib
-        // at an site-installed CA bundle via these vars.
-        "SSL_CERT_FILE", "SSL_CERT_DIR",
-        "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
-
-        // User-profile paths — yt-dlp's cookie handling and some config paths read these.
-        "USERPROFILE", "USERNAME", "USERDOMAIN",
-        "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH",
+        "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP",
+        "PYTHONEXECUTABLE", "PYTHONUSERBASE", "PYTHONCASEOK",
     };
 
+    // v1.3.6: STOP clearing the child environment.
+    //
+    // History — read this before "tidying" it back into an allowlist:
+    //   v1.1.16  ProcessSandbox shipped with EnvironmentVariables.Clear() + a rebuilt
+    //            allowlist, out of paranoia over PATH hijack (spec §5.2).
+    //   v1.1.18  91b2a62 removed the Clear(): the allowlist starved PyInstaller's
+    //            Python init and yt-dlp.exe hung on cold start with ZERO output on
+    //            both pipes — indistinguishable from a network timeout in the log.
+    //   v1.1.27  a4c0668 ("revert(arch): drop TTY-mode complications, base on v1.1.16
+    //            pipe-mode") put the Clear() back. That revert was justified by a
+    //            *different* finding — a user's real root cause turned out to be
+    //            broken IPv6 routing, fixed by --force-ipv4 — and the env work got
+    //            swept up with the TTY work it was never part of.
+    //   v1.3.6   Field log (2026-08, Intel HD 4600 / managed desktop) showed
+    //            `yt-dlp.exe --version` — which performs NO network I/O at all —
+    //            timing out at 30s with zero bytes under this sandbox, while the same
+    //            command succeeded from cmd.exe, and ffmpeg.exe (native, few env
+    //            dependencies) succeeded through this very same sandbox. IPv6 cannot
+    //            explain a --version hang; the stripped environment can.
+    //
+    // The allowlist could never be right: it has to enumerate every var that Python,
+    // PyInstaller's bootloader, and whatever EDR/AV DLL the machine injects into every
+    // new process might need (SystemDrive, ProgramData, ALLUSERSPROFILE, COMSPEC,
+    // PATHEXT, PROCESSOR_ARCHITECTURE, NUMBER_OF_PROCESSORS, …). We cannot know that
+    // list for someone else's managed desktop. Inherit, then subtract the few vars
+    // that are genuinely dangerous.
     private static void ConfigureSandboxedEnvironment(
         ProcessStartInfo info,
         string exePath,
         IReadOnlyDictionary<string, string>? extraEnv)
     {
-        info.EnvironmentVariables.Clear();
         var binDir = Path.GetDirectoryName(exePath) ?? "";
         var systemDir = Environment.GetFolderPath(Environment.SpecialFolder.System);
         var systemRoot = Environment.GetEnvironmentVariable("SystemRoot") ?? @"C:\Windows";
-        var tempDir = Path.GetTempPath();
-        info.EnvironmentVariables["SystemRoot"] = systemRoot;
-        info.EnvironmentVariables["Temp"] = tempDir;
-        info.EnvironmentVariables["TMP"] = tempDir;
+
+        // Accessing EnvironmentVariables pre-populates it with the parent's full
+        // environment. We deliberately do NOT Clear() it.
+        foreach (var name in StrippedEnvVars)
+            info.EnvironmentVariables.Remove(name);
+
+        // PATH is still rewritten — this is the actual hijack vector spec §5.2 cares
+        // about, and overriding it costs the child nothing it needs.
         info.EnvironmentVariables["Path"] = $"{binDir};{systemDir};{Path.Combine(systemRoot, "System32")}";
         info.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
         info.EnvironmentVariables["PYTHONUTF8"] = "1";
 
-        foreach (var name in PassThroughEnvVars)
-        {
-            var value = Environment.GetEnvironmentVariable(name);
-            if (!string.IsNullOrEmpty(value))
-                info.EnvironmentVariables[name] = value;
-        }
+        var tempDir = ResolveChildTempDirectory();
+        info.EnvironmentVariables["TEMP"] = tempDir;
+        info.EnvironmentVariables["TMP"] = tempDir;
 
-        // Explicit injection from the caller wins over the whitelist — used to force
+        // Explicit injection from the caller wins over everything — used to force
         // SSL_CERT_FILE / REQUESTS_CA_BUNDLE values regardless of the parent's env.
         if (extraEnv is not null)
         {
@@ -224,5 +243,71 @@ public static class ProcessSandbox
                     info.EnvironmentVariables[kv.Key] = kv.Value;
             }
         }
+    }
+
+    /// <summary>
+    /// Temp directory handed to the child. Normally just the inherited one, but a
+    /// PyInstaller onefile binary extracts its whole ~30 MB bundle here on EVERY run
+    /// (fresh _MEIxxxxxx each time), so if %TEMP% lands on a network share — roaming
+    /// profile, aggressive folder redirection, a mapped home drive — extraction blows
+    /// straight past the 30s watchdog with nothing on either pipe. Fall back to
+    /// LocalApplicationData, which folder-redirection GPO leaves alone by convention
+    /// (only AppData\Roaming is normally redirected).
+    /// </summary>
+    internal static string ResolveChildTempDirectory()
+    {
+        string inherited;
+        try { inherited = Path.GetTempPath(); }
+        catch { return Path.GetTempPath(); }
+
+        if (!IsNetworkPath(inherited)) return inherited;
+
+        try
+        {
+            var local = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "YtDlpTool", "temp");
+            if (!IsNetworkPath(local))
+            {
+                Directory.CreateDirectory(local);
+                return local;
+            }
+        }
+        catch { /* fall through — an unusable fallback is worse than the inherited path */ }
+
+        return inherited;
+    }
+
+    /// <summary>
+    /// True when <paramref name="path"/> lives on a UNC share or a mapped network
+    /// drive. Extended-length prefixes (\\?\C:\…, \\.\…) are local despite the
+    /// leading backslashes, so they fall through to the drive-type check.
+    /// </summary>
+    internal static bool IsNetworkPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+
+        // Strip the extended-length prefix first. Path.GetFullPath PRESERVES it, so
+        // leaving it on makes every \\?\C:\… look like UNC to the leading-\\ test.
+        // \\?\UNC\server\share is the extended spelling of \\server\share and IS remote.
+        var bare = path;
+        foreach (var prefix in new[] { @"\\?\", @"\\.\" })
+        {
+            if (!bare.StartsWith(prefix, StringComparison.Ordinal)) continue;
+            bare = bare[prefix.Length..];
+            if (bare.StartsWith("UNC\\", StringComparison.OrdinalIgnoreCase)) return true;
+            break;
+        }
+
+        if (bare.StartsWith(@"\\", StringComparison.Ordinal)) return true;
+
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(bare));
+            if (string.IsNullOrEmpty(root)) return false;
+            if (root.StartsWith(@"\\", StringComparison.Ordinal)) return true;
+            return new DriveInfo(root).DriveType == DriveType.Network;
+        }
+        catch { return false; }
     }
 }

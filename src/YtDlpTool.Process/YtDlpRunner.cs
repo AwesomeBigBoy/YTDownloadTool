@@ -82,6 +82,7 @@ public sealed class YtDlpRunner
             ["timed_out"]       = exit.TimedOut ? "true" : "false",
             ["cancelled"]       = exit.Cancelled ? "true" : "false",
             ["pid"]             = exit.Pid.ToString(),
+            ["start_ms"]        = exit.StartMs.ToString(),
             ["first_output_ms"] = exit.TimeToFirstOutputMs is { } ms ? ms.ToString() : "(none)",
             ["stdout_bytes"]    = exit.StdoutBytes.ToString(),
             ["stderr_bytes"]    = exit.StderrBytes.ToString(),

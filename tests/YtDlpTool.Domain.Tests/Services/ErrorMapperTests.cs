@@ -130,6 +130,12 @@ public class ErrorMapperTests
         Assert.Contains("沒有產生任何輸出", r.UserMessage);
         Assert.Contains("防毒軟體", r.UserMessage);
         Assert.Contains("--version", r.UserMessage);
+
+        // v1.3.6: the category must NOT be NetworkError. Nothing about a child that
+        // produced zero bytes is a network failure, and `url.parse.failed
+        // category=NetworkError` in the log sent every reader of the 2026-08 report
+        // down a connectivity rabbit hole while the message itself said the opposite.
+        Assert.Equal(ErrorCategory.ComponentMissing, r.Category);
     }
 
     [Fact]

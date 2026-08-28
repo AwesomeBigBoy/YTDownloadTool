@@ -37,8 +37,15 @@
                          IsIndeterminate="True"
                          Visibility="Collapsed" />
 
+            <!-- v1.3.6: TextWrapping is REQUIRED here. WPF defaults TextBlock to
+                 NoWrap, and ErrorMapper's diagnostic messages (E-TIMEOUT02 is ~250
+                 chars of remediation steps) then render as one long line that runs
+                 off the card and is clipped. Users saw only "解析網址逾時…" and
+                 reported it as a connection problem, while every actionable
+                 instruction sat off-screen. Do not remove. -->
             <TextBlock x:Name="ErrorLabel"
                        Margin="0,8,0,0"
+                       TextWrapping="Wrap"
                        Foreground="{DynamicResource Brush.Danger}"
                        Visibility="Collapsed" />
 

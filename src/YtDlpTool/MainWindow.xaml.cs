@@ -44,6 +44,7 @@ public partial class MainWindow : Window
         ViewModel = new MainViewModel(host);
         DataContext = ViewModel;
         UpdateBanner.DataContext = host.BannerVm;
+        HealthBanner.DataContext = host.HealthVm;
         Activated += (_, _) => UrlInput.RefreshPasteHint();
 
         // v1.2.3: surface the version in two places (taskbar title + header label) so
