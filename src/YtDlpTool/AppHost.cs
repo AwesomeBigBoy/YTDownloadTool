@@ -240,10 +240,10 @@ public sealed class AppHost : IDisposable
     /// background update check and the Settings dialog's manual "check now" / "redownload components"
     /// flows so they share the exact same probe path.
     /// </summary>
-    public async Task<InstalledVersions> GetInstalledVersionsAsync()
+    public async Task<InstalledVersions> GetInstalledVersionsAsync(bool forceRefresh = false)
     {
         var app    = ThisVersion();
-        var ytDlp  = await ProbeYtDlpVersionAsync().ConfigureAwait(false);
+        var ytDlp  = await EnsureYtDlpReadyAsync(forceRefresh).ConfigureAwait(false);
         var ffmpeg = await ProbeFfmpegVersionAsync().ConfigureAwait(false);
         // v1.3.2: log what each probe returned. Diagnoses persistent
         // "update available" prompts where the installed component's --version
@@ -262,6 +262,50 @@ public sealed class AppHost : IDisposable
     public UpdateBannerViewModel BannerVm { get; } = new();
     public HealthBannerViewModel HealthVm { get; } = new();
 
+    private readonly object _warmupGate = new();
+    private Task<string>? _ytDlpWarmup;
+
+    /// <summary>
+    /// One yt-dlp cold start per launch, shared by every caller.
+    ///
+    /// v1.3.7. Two things went wrong in v1.3.6 and this fixes both:
+    ///
+    /// 1. **Concurrent cold starts.** `RunStartupHealthCheckAsync` and
+    ///    `StartBackgroundUpdateCheckAsync` are both fired from App.OnStartup with the
+    ///    same 5s delay, and each called ProbeYtDlpVersionAsync independently — so two
+    ///    yt-dlp.exe processes raced, and a user pasting a URL made three. Each one is
+    ///    a separate PyInstaller onefile bundle extracting ~30 MB into its own fresh
+    ///    `%TEMP%\_MEIxxxxxx`, so they compete for exactly the resource that is already
+    ///    the bottleneck. Field log 2026-08-28 (UHD 710): all three timed out, then a
+    ///    probe 43s later returned `2026.03.17` — the binary was fine all along.
+    ///
+    /// 2. **30s is not a cold-start budget.** `start_ms=58` in that same log proves
+    ///    CreateProcess was instant; the time goes inside the child, in extraction +
+    ///    the AV scan of a freshly-written yt-dlp.exe (which an update guarantees).
+    ///    The warm-up therefore gets a much longer timeout than a normal call — it runs
+    ///    in the background where nobody is watching a spinner.
+    ///
+    /// Real work (metadata/download) should await this first; once it completes, the
+    /// binary is warm and the ordinary 30s timeouts are generous.
+    /// </summary>
+    public Task<string> EnsureYtDlpReadyAsync(bool forceRefresh = false)
+    {
+        lock (_warmupGate)
+        {
+            if (forceRefresh || _ytDlpWarmup is null)
+                _ytDlpWarmup = ProbeYtDlpVersionAsync(WarmupTimeout);
+            return _ytDlpWarmup;
+        }
+    }
+
+    /// <summary>
+    /// Cold-start budget for the one-per-launch warm-up. Deliberately far larger than
+    /// the 30s used for interactive calls: this runs in the background, and the cost of
+    /// being too short is a false "component is broken" banner plus a user-visible
+    /// failure on a machine where yt-dlp merely needed longer.
+    /// </summary>
+    private static readonly TimeSpan WarmupTimeout = TimeSpan.FromSeconds(180);
+
     /// <summary>
     /// v1.3.6: verify the component that does all the actual work can start at all,
     /// and say so up front if it cannot.
@@ -279,13 +323,19 @@ public sealed class AppHost : IDisposable
         try { await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false); }
         catch (TaskCanceledException) { return; }
 
-        var ytDlp = await ProbeYtDlpVersionAsync().ConfigureAwait(false);
+        // v1.3.7: shared warm-up, not a second private probe. See EnsureYtDlpReadyAsync.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var ytDlp = await EnsureYtDlpReadyAsync().ConfigureAwait(false);
         var healthy = !string.IsNullOrWhiteSpace(ytDlp);
 
         Logger.Info("health.ytdlp", new Dictionary<string, string>
         {
-            ["ok"]      = healthy ? "true" : "false",
-            ["version"] = healthy ? ytDlp : "(no-response)",
+            ["ok"]         = healthy ? "true" : "false",
+            ["version"]    = healthy ? ytDlp : "(no-response)",
+            // How long the cold start actually took. On a healthy machine this is a few
+            // hundred ms; a value in the tens of seconds means the binary works but is
+            // being scanned on first execution, which is worth knowing before blaming it.
+            ["warmup_ms"]  = ((long)sw.ElapsedMilliseconds).ToString(),
         });
 
         if (healthy || ct.IsCancellationRequested) return;
@@ -356,21 +406,26 @@ public sealed class AppHost : IDisposable
         };
     }
 
-    private async Task<string> ProbeYtDlpVersionAsync()
+    private async Task<string> ProbeYtDlpVersionAsync(TimeSpan? timeout = null)
     {
         // v1.3.2: bumped timeout 5s → 30s. PyInstaller-frozen yt-dlp.exe self-
         // extracts to %TEMP% on first run and takes longer than 5s under
         // anti-virus scanning, which made --version time out and return empty
         // — UpdateChecker then read empty < manifest version, flagged yt-dlp
         // as "newer available" forever, and the user got an update prompt that
-        // never went away. 30s is enough for a cold PyInstaller start on a
-        // slow disk + AV scan.
+        // never went away.
+        //
+        // v1.3.7: 30s was still not enough. It is a reasonable budget for a WARM
+        // binary and a bad one for a cold start — the 2026-08-28 UHD 710 log timed
+        // out three concurrent 30s probes and then answered in full 43s later. The
+        // caller now chooses: WarmupTimeout for the once-per-launch cold start,
+        // the 30s default for anything interactive.
         try
         {
             var args = new ProcessStartArguments(
                 ExecutablePath: Path.Combine(Paths.BinDirectory, "yt-dlp.exe"),
                 Arguments: new[] { "--version" },
-                Timeout: TimeSpan.FromSeconds(30),
+                Timeout: timeout ?? TimeSpan.FromSeconds(30),
                 StdoutByteLimit: 64 * 1024);
             var output = new System.Text.StringBuilder();
             var exit = await ProcessSandbox.RunAsync(args, l => { lock (output) output.AppendLine(l.Text); }).ConfigureAwait(false);

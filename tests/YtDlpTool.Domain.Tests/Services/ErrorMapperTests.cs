@@ -127,7 +127,20 @@ public class ErrorMapperTests
         // the SSL prompt logic doesn't mis-route this as an SSL failure.
         var r = ErrorMapper.Map("[timeout after 30s]");
         Assert.Equal("E-TIMEOUT02", r.ErrorCode);
-        Assert.Contains("沒有產生任何輸出", r.UserMessage);
+
+        // The message must rule the network out explicitly — that misreading is what
+        // this error code exists to prevent.
+        Assert.Contains("與網路連線無關", r.UserMessage);
+
+        // v1.3.7: "wait and retry" must come before the antivirus advice. A machine
+        // that answered `--version` 43s after this error was raised is not a machine
+        // whose antivirus quarantined anything, and sending those users to hunt
+        // through a quarantine list wastes their time.
+        Assert.True(
+            r.UserMessage.IndexOf("再試一次", StringComparison.Ordinal) <
+            r.UserMessage.IndexOf("隔離區", StringComparison.Ordinal),
+            "retry-first guidance must precede the quarantine check");
+
         Assert.Contains("防毒軟體", r.UserMessage);
         Assert.Contains("--version", r.UserMessage);
 

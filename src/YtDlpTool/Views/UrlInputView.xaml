@@ -49,6 +49,17 @@
                        Foreground="{DynamicResource Brush.Danger}"
                        Visibility="Collapsed" />
 
+            <!-- v1.3.7: shown while the once-per-launch yt-dlp cold start is still
+                 running, so a slow first extraction reads as "please wait" rather
+                 than a silent 30s stall ending in a timeout. Separate from FirstHint,
+                 which owns its own fade animation. -->
+            <TextBlock x:Name="WarmupHint"
+                       Margin="0,8,0,0"
+                       TextWrapping="Wrap"
+                       FontSize="12"
+                       Foreground="{DynamicResource Brush.TextTertiary}"
+                       Visibility="Collapsed" />
+
             <TextBlock x:Name="FirstHint"
                        Margin="0,12,0,0"
                        Foreground="{DynamicResource Brush.TextTertiary}"

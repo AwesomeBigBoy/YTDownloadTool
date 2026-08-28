@@ -78,6 +78,20 @@ public partial class UrlInputView : UserControl
 
         try
         {
+            // v1.3.7: wait for the one-per-launch yt-dlp cold start instead of racing
+            // it. Previously a paste within the first ~40s of launch fired a third
+            // concurrent PyInstaller extraction alongside the health and update probes,
+            // and all three then lost to the 30s watchdog on exactly the machines where
+            // extraction is already slow. Awaiting it costs nothing once warm (the task
+            // is already completed) and turns the pathological case into a wait with an
+            // explanation instead of a guaranteed failure.
+            var warmup = vm.Host.EnsureYtDlpReadyAsync();
+            if (!warmup.IsCompleted)
+            {
+                ShowHint("元件首次啟動中，請稍候…（防毒軟體正在檢查，僅第一次需要）");
+                await warmup;
+            }
+
             var result = await vm.Host.YtDlp.FetchMetadataAsync(url, _inFlightCts.Token);
             if (!result.IsSuccess || result.Metadata is null)
             {
@@ -121,6 +135,7 @@ public partial class UrlInputView : UserControl
         {
             ParsingBar.Visibility = Visibility.Collapsed;
             vm.IsParsing = false;
+            ClearHint();
         }
     }
 
@@ -142,6 +157,14 @@ public partial class UrlInputView : UserControl
         ErrorLabel.Text = message;
         ErrorLabel.Visibility = Visibility.Visible;
     }
+
+    private void ShowHint(string message)
+    {
+        WarmupHint.Text = message;
+        WarmupHint.Visibility = Visibility.Visible;
+    }
+
+    private void ClearHint() => WarmupHint.Visibility = Visibility.Collapsed;
 
     private void ShowMeta(VideoMetadata m)
     {

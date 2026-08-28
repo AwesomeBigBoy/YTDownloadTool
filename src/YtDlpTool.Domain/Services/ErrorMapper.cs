@@ -96,15 +96,27 @@ public static class ErrorMapper
             // in the log point every reader at the network. Nothing here is a network
             // failure: the child never even produced output. ComponentMissing matches
             // E-BLOCK01/E-COMP001, the other "the binary would not run" cases.
+            // v1.3.7: reordered. The 2026-08-28 UHD 710 log showed this exact error
+            // followed 43 seconds later by a successful `--version` returning
+            // 2026.03.17 — the component was never broken, its FIRST start after the
+            // binary was replaced simply took longer than the watchdog allowed, because
+            // AV scans a freshly-written executable hard on first execution. Leading
+            // with "your antivirus blocked it" sent users hunting through quarantine
+            // lists for a file that was never quarantined. Most likely cause first.
             return new MappedError(ErrorCategory.ComponentMissing,
-                "解析網址逾時，且 yt-dlp 在 30 秒內沒有產生任何輸出。" +
-                "通常代表 yt-dlp 本身沒能正常啟動，可能原因：" +
-                "(1) 防毒軟體阻擋了 yt-dlp.exe 的執行 — 請檢查防毒隔離區並把 yt-dlp.exe 加入信任清單；" +
-                "(2) 機器資源不足或 %TEMP% 寫入受限 — 關閉其他程式後重試，或將整個資料夾移到桌面/個人目錄；" +
-                "(3) yt-dlp.exe 檔案損毀 — 請至設定 → 進階 → 重新下載元件；" +
-                "(4) 若以上都試過仍失敗，請開啟 cmd，切換到本資料夾的 bin 目錄，執行 " +
-                "「yt-dlp.exe --version」，看是否能在系統環境下直接執行成功。如果該指令在 cmd 內也卡住沒輸出，問題在 yt-dlp.exe 本身被系統阻擋；" +
-                "若 cmd 可以順利執行，請把該結果回報給開發者。",
+                "解析網址逾時，yt-dlp 元件在時限內沒有回應。這與網路連線無關。" +
+                "最常見的原因是元件「第一次啟動」太慢——剛更新完或剛解壓縮時，" +
+                "防毒軟體會完整掃描一次 yt-dlp.exe，在較舊或較慢的電腦上可能需要一分鐘以上。" +
+                "請先「稍等一分鐘後再試一次」，多數情況第二次就會正常。" +
+                "若重試多次仍然失敗，再依序檢查：" +
+                "(1) 將整個程式資料夾從「下載」資料夾移到桌面或個人目錄後重新開啟 — " +
+                "從瀏覽器下載的檔案會帶有封鎖標記，防毒檢查特別嚴格；" +
+                "(2) 檢查防毒軟體的隔離區，若 yt-dlp.exe 被隔離請還原並加入信任清單；" +
+                "(3) 至設定 → 進階 → 重新下載元件；" +
+                "(4) 開啟 PowerShell，切換到本資料夾的 bin 目錄，執行 " +
+                "「Measure-Command { .\\yt-dlp.exe --version }」。" +
+                "若它能回報版本號但耗時很長，就是啟動速度問題；" +
+                "若完全沒有輸出，請把 logs 資料夾內的紀錄檔回報給開發者。",
                 "E-TIMEOUT02",
                 true, raw);
         }

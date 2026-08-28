@@ -190,7 +190,10 @@ public partial class SettingsDialog : Window
 
         try
         {
-            var installed = await _host.GetInstalledVersionsAsync().ConfigureAwait(true);
+            // v1.3.7: force a fresh probe. This path also runs after "重新下載元件"
+            // replaced yt-dlp.exe, and the per-launch warm-up cache would otherwise
+            // report the version of the binary that existed at startup.
+            var installed = await _host.GetInstalledVersionsAsync(forceRefresh: true).ConfigureAwait(true);
             if (ct.IsCancellationRequested) return;
             var availability = await _host.UpdateChecker.CheckAsync(installed, ct).ConfigureAwait(true);
             if (ct.IsCancellationRequested) return;
