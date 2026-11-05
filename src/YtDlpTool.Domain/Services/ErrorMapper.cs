@@ -132,6 +132,14 @@ public static class ErrorMapper
         // ProcessSandbox (Fix B) bubbling up a Win32Exception hint, or from urllib's
         // SSL / proxy errors that include "...Error:" tokens that would otherwise be
         // swallowed by the generic ERROR-line fallback.
+        // v1.5.0: ProcessSandbox found the executable damaged (not a Windows program).
+        if (stderr.Contains("元件檔案已損毀", StringComparison.Ordinal))
+        {
+            return new MappedError(ErrorCategory.ComponentMissing,
+                "處理元件的檔案已損毀。請按上方提示列的「修復」，或到「設定 → 進階 → 重新下載元件」。",
+                "E-COMP002", false, raw);
+        }
+
         if (stderr.Contains("AppLocker", StringComparison.OrdinalIgnoreCase) ||
             stderr.Contains("被防毒隔離", StringComparison.Ordinal) ||
             stderr.Contains("找不到可執行檔", StringComparison.Ordinal) ||

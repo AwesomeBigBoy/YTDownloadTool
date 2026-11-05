@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using YtDlpTool.Dialogs;
 using YtDlpTool.Domain.Updates;
 using YtDlpTool.ViewModels;
 
@@ -60,12 +61,18 @@ public partial class UpdateBannerView : UserControl
                 string.Equals(en.Name, "YtDlpTool.exe", StringComparison.OrdinalIgnoreCase));
             if (appExeUpdated)
             {
-                MessageBox.Show(
+                AppDialog.Show(Window.GetWindow(this),
                     "YtDlpTool 主程式已更新完成，將立刻重新啟動套用新版本。",
                     "更新完成",
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 App.RestartApplication();
                 return;
+            }
+            if (YtDlpUpdateFinisher.Includes(entries))
+            {
+                Vm.ApplyStatus = "正在安裝 yt-dlp 元件…";
+                var activation = await YtDlpUpdateFinisher.FinishAsync(Host, Window.GetWindow(this), "banner_one_click");
+                Vm.ApplyStatus = activation.IsFixed ? "✓ 已更新" : activation.Message;
             }
             await Task.Delay(1500);
             Vm.IsVisible = false;
@@ -76,7 +83,7 @@ public partial class UpdateBannerView : UserControl
             Vm.IsApplying = false;
             Vm.HasFailure = true;
             Vm.FailureReason = result.FailureReason;
-            MessageBox.Show(
+            AppDialog.Show(Window.GetWindow(this),
                 $"更新失敗，已自動還原。\n\n詳情：{result.FailureReason}",
                 "YtDlpTool", MessageBoxButton.OK, MessageBoxImage.Warning);
         }

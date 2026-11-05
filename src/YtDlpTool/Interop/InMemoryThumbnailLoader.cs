@@ -25,7 +25,12 @@ public static class InMemoryThumbnailLoader
         return c;
     }
 
-    public static async Task<ImageSource?> LoadAsync(string url, CancellationToken ct = default)
+    /// <param name="maxPixelWidth">
+    /// v1.5.0: when the image is wider, a scaled copy is returned and the full-size frame is
+    /// left for the GC. A 1280×720 thumbnail is ~3.7 MB decoded; queue rows (and a 500-video
+    /// playlist of them) only ever show it at 112 px.
+    /// </param>
+    public static async Task<ImageSource?> LoadAsync(string url, int maxPixelWidth = 0, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
         try
@@ -62,8 +67,16 @@ public static class InMemoryThumbnailLoader
                     ms,
                     BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreImageCache,
                     BitmapCacheOption.OnLoad);
-                if (frame.CanFreeze) frame.Freeze();
-                return (ImageSource)frame;
+                BitmapSource image = frame;
+                if (maxPixelWidth > 0 && frame.PixelWidth > maxPixelWidth)
+                {
+                    // A WriteableBitmap copies the scaled pixels, so nothing keeps the
+                    // full-size frame alive (a TransformedBitmap alone would).
+                    var scale = (double)maxPixelWidth / frame.PixelWidth;
+                    image = new WriteableBitmap(new TransformedBitmap(frame, new ScaleTransform(scale, scale)));
+                }
+                if (image.CanFreeze) image.Freeze();
+                return (ImageSource)image;
             });
         }
         catch

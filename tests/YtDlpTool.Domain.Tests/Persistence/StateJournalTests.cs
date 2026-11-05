@@ -53,6 +53,23 @@ public class StateJournalTests : IDisposable
     }
 
     [Fact]
+    public void Append_AfterDispose_IsIgnored()
+    {
+        // Closing the app disposes the journal while yt-dlp may still print progress for up
+        // to its kill grace. That report runs on the stdout reader thread (InlineProgress),
+        // where the NullReferenceException it threw ended the whole process.
+        var journal = new StateJournal(_path);
+        journal.Dispose();
+
+        var thrown = Record.Exception(() => journal.Append(new StateJournalEvent
+        {
+            At = DateTimeOffset.UtcNow, Type = StateJournalEventType.JobProgress, JobId = Guid.NewGuid(), ProgressPercent = 5,
+        }));
+
+        Assert.Null(thrown);
+    }
+
+    [Fact]
     public void Read_MalformedLine_IsSkipped()
     {
         File.WriteAllText(_path, "{\"At\":\"2026-05-14T00:00:00Z\",\"Type\":\"JobEnqueued\",\"JobId\":\"11111111-1111-1111-1111-111111111111\"}\nthis is not json\n");

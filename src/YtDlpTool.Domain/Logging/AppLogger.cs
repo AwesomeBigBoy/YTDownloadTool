@@ -61,11 +61,11 @@ public sealed class AppLogger : IDisposable
             }
             _writer.WriteLine();
 
-            // Always flush Warn/Error immediately so failure diagnostics are visible
-            // to users tailing the log file in real time — buffered Info-level events
-            // get a periodic flush via Dispose / explicit Flush(), but Warn/Error must
-            // not be hidden in a buffer when the user is actively debugging.
-            if (level >= LogLevel.Warn) _writer.Flush();
+            // v1.5.0: every line goes to disk as it is written. Info lines used to wait in
+            // the buffer for Dispose, so a process that was killed (Task Manager, a crash,
+            // a forced logoff) lost its whole session — the very runs that need the log.
+            // The app logs events, not progress ticks: a few hundred lines a session.
+            _writer.Flush();
         }
     }
 

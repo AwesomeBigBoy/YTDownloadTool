@@ -66,7 +66,10 @@ public static class ProcessSandbox
             recentStdout.Enqueue(e.Data);
             while (recentStdout.Count > RecentStdoutCapacity)
                 recentStdout.TryDequeue(out string? _);
-            onStdout?.Invoke(new ProcessStdoutLine(e.Data, DateTime.UtcNow));
+            // v1.5.0: the download's whole progress chain runs inside this callback, on the
+            // reader thread; an exception escaping it would end the process.
+            try { onStdout?.Invoke(new ProcessStdoutLine(e.Data, DateTime.UtcNow)); }
+            catch (Exception) { }
         };
 
         process.ErrorDataReceived += (_, e) =>
@@ -92,6 +95,13 @@ public static class ProcessSandbox
         // so a slow CreateProcess (AV scanning an unsigned binary, a cold page-in from
         // a network share) is invisible in the log and shows up only as "the 30s
         // timeout actually took 38s". Measure it explicitly.
+        // v1.5.0: never hand Windows a damaged executable — one that still starts with a
+        // DOS header made it show its own "16-bit application" box (PeImage).
+        if (!PeImage.LooksLikeAWindowsProgram(args.ExecutablePath))
+            return new ProcessExitInfo(-1,
+                $"Process.Start failed: {PeImage.DamagedHint} — {Path.GetFileName(args.ExecutablePath)}",
+                false, false, false, false);
+
         long startMs;
         try
         {
@@ -106,6 +116,7 @@ public static class ProcessSandbox
                 2    => "找不到可執行檔（檔案可能被防毒隔離或缺失）",
                 5    => "存取被拒（AppLocker / WDAC 可能阻擋此程式執行）",
                 740  => "需要提升權限（Elevation required）",
+                193 or 216 => PeImage.DamagedHint,
                 1260 => "AppLocker 群組原則拒絕執行此程式",
                 _    => $"Win32 錯誤 {wex.NativeErrorCode}"
             };

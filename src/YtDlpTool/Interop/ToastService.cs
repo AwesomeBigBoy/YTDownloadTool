@@ -18,6 +18,19 @@ public static class ToastService
         catch { /* best effort */ }
     }
 
+    /// <summary>v1.5.0: one toast for all the downloads a playlist or batch queued.</summary>
+    public static void NotifyBatchFinished(int completed, int failed)
+    {
+        try
+        {
+            new ToastContentBuilder()
+                .AddText(failed == 0 ? "批次下載完成" : "批次下載結束")
+                .AddText(failed == 0 ? $"{completed} 部影片已下載" : $"{completed} 部完成，{failed} 部失敗")
+                .Show();
+        }
+        catch { /* best effort */ }
+    }
+
     public static void NotifyDownloadFailed(string title, string reason)
     {
         try

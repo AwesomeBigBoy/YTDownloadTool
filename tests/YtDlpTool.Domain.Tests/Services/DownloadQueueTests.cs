@@ -207,6 +207,181 @@ public class DownloadQueueTests
         }
     }
 
+    /// <summary>
+    /// Mimics the filename-conflict dialog: the executor tells the queue it is waiting for
+    /// the user, stays silent far longer than the no-progress timeout, then carries on.
+    /// </summary>
+    private sealed class WaitsForUserFakeExecutor : IDownloadExecutor
+    {
+        public async Task<DownloadExecutionResult> ExecuteAsync(
+            DownloadJob job, IProgress<DownloadProgressSnapshot> progress,
+            CancellationToken cancellationToken)
+        {
+            progress.Report(new DownloadProgressSnapshot(0, null, null, WaitingForUser: true));
+            await Task.Delay(400, CancellationToken.None).ConfigureAwait(false);
+            if (cancellationToken.IsCancellationRequested)
+                return new DownloadExecutionResult(false, null, null, WasCancelled: true);
+
+            progress.Report(new DownloadProgressSnapshot(50, 1024, null));
+            await Task.Delay(20, cancellationToken).ConfigureAwait(false);
+            return new DownloadExecutionResult(true, "C:\\out\\video.mp4", null, WasCancelled: false);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadQueue_WaitingForUser_DoesNotTripTheWatchdog()
+    {
+        // v1.5.0 field-repro: a filename-conflict dialog left open for more than 90 s made
+        // the no-progress watchdog cancel the job, and clicking 自動改名 afterwards then
+        // failed it as E-STUCK01 「下載卡住」. Time spent waiting for the user is not a stall.
+        var events = new List<QueueEvent>();
+        using var queue = new DownloadQueue(
+            new WaitsForUserFakeExecutor(),
+            maxConcurrency: 1,
+            onEvent: e => { lock (events) events.Add(e); },
+            logger: null,
+            max429Retries: 0,
+            rateLimitRetryDelay: TimeSpan.FromMilliseconds(50),
+            noProgressTimeout: TimeSpan.FromMilliseconds(100),
+            watchdogInterval: TimeSpan.FromMilliseconds(10));
+
+        queue.Enqueue(MakeJob());
+        await WaitFor(() => { lock (events) return events.Any(e => e is JobCompletedEvent or JobFailedEvent); }, timeoutMs: 4000);
+
+        lock (events)
+        {
+            Assert.Contains(events, e => e is JobCompletedEvent);
+            Assert.DoesNotContain(events, e => e is JobFailedEvent);
+        }
+    }
+
+    /// <summary>The conflict dialog, answered after longer than the timeout; then the download hangs.</summary>
+    private sealed class AnswersThenStallsFakeExecutor : IDownloadExecutor
+    {
+        public async Task<DownloadExecutionResult> ExecuteAsync(
+            DownloadJob job, IProgress<DownloadProgressSnapshot> progress,
+            CancellationToken cancellationToken)
+        {
+            progress.Report(new DownloadProgressSnapshot(0, null, null, WaitingForUser: true));
+            await Task.Delay(300, CancellationToken.None).ConfigureAwait(false);
+            progress.Report(new DownloadProgressSnapshot(0, null, null));
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            return new DownloadExecutionResult(false, null, null, WasCancelled: true);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadQueue_AfterTheUserAnswers_TheWatchdogIsArmedAgain()
+    {
+        var events = new List<QueueEvent>();
+        using var queue = new DownloadQueue(
+            new AnswersThenStallsFakeExecutor(),
+            maxConcurrency: 1,
+            onEvent: e => { lock (events) events.Add(e); },
+            logger: null,
+            max429Retries: 0,
+            rateLimitRetryDelay: TimeSpan.FromMilliseconds(50),
+            noProgressTimeout: TimeSpan.FromMilliseconds(100),
+            watchdogInterval: TimeSpan.FromMilliseconds(10));
+
+        queue.Enqueue(MakeJob());
+        await WaitFor(() => { lock (events) return events.Any(e => e is JobFailedEvent); }, timeoutMs: 4000);
+
+        lock (events) Assert.Equal("E-STUCK01", events.OfType<JobFailedEvent>().Single().Error.ErrorCode);
+    }
+
+    private sealed class ReportsAndRecordsFakeExecutor : IDownloadExecutor
+    {
+        public Exception? ReportThrew;
+
+        public async Task<DownloadExecutionResult> ExecuteAsync(
+            DownloadJob job, IProgress<DownloadProgressSnapshot> progress,
+            CancellationToken cancellationToken)
+        {
+            try { progress.Report(new DownloadProgressSnapshot(50, 1024, null)); }
+            catch (Exception ex) { ReportThrew = ex; }
+            await Task.Yield();
+            return new DownloadExecutionResult(true, @"C:\out\video.mp4", null, WasCancelled: false);
+        }
+    }
+
+    [Fact]
+    public async Task AProgressListenerThatThrows_NeverReachesTheReportingThread()
+    {
+        // Reports run on yt-dlp's stdout reader thread now, where an exception ends the
+        // process — a full disk under state.log, a listener bug.
+        var fake = new ReportsAndRecordsFakeExecutor();
+        var events = new List<QueueEvent>();
+        using var queue = new DownloadQueue(fake, maxConcurrency: 1, onEvent: e =>
+        {
+            if (e is JobProgressEvent) throw new IOException("state.log: disk full");
+            lock (events) events.Add(e);
+        });
+
+        queue.Enqueue(MakeJob());
+        await WaitFor(() => { lock (events) return events.Any(e => e is JobCompletedEvent); });
+
+        Assert.Null(fake.ReportThrew);
+    }
+
+    /// <summary>A UI thread that is busy: whatever is posted to it waits (here, forever).</summary>
+    private sealed class BusyUiContext : SynchronizationContext
+    {
+        public int Posted;
+        public override void Post(SendOrPostCallback d, object? state) => Interlocked.Increment(ref Posted);
+        public override void Send(SendOrPostCallback d, object? state) => throw new NotSupportedException();
+    }
+
+    private sealed class ReportsFromAWorkerFakeExecutor : IDownloadExecutor
+    {
+        public async Task<DownloadExecutionResult> ExecuteAsync(
+            DownloadJob job, IProgress<DownloadProgressSnapshot> progress,
+            CancellationToken cancellationToken)
+        {
+            // yt-dlp's output arrives on a reader thread.
+            await Task.Run(() =>
+            {
+                for (var p = 10; p <= 90; p += 20) progress.Report(new DownloadProgressSnapshot(p, 1024, null));
+            }, cancellationToken).ConfigureAwait(false);
+            return new DownloadExecutionResult(true, "C:\\out\\video.mp4", null, WasCancelled: false);
+        }
+    }
+
+    [Fact]
+    public async Task Progress_IsHandledOnTheReportingThread_InOrder_EvenForAJobQueuedFromTheUiThread()
+    {
+        // A job queued from the UI thread wrapped its progress in Progress<T>, which posts
+        // every line to that thread — before the UI's throttle could drop it — and a job
+        // started from the pool got its reports on pool threads in any order: the order the
+        // watchdog's waiting-for-the-user flag depends on.
+        var events = new List<QueueEvent>();
+        using var queue = new DownloadQueue(new ReportsFromAWorkerFakeExecutor(), maxConcurrency: 1,
+            onEvent: e => { lock (events) events.Add(e); });
+        var ui = new BusyUiContext();
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(ui);
+        try
+        {
+            queue.Enqueue(MakeJob());
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+
+        await WaitFor(() => { lock (events) return events.Any(e => e is JobCompletedEvent); });
+
+        lock (events)
+            Assert.Equal(new[] { 10.0, 30, 50, 70, 90 }, events.OfType<JobProgressEvent>().Select(e => e.Progress.Percent));
+        Assert.Equal(0, ui.Posted);
+    }
+
     private sealed class StuckDuringRateLimitFakeExecutor : IDownloadExecutor
     {
         // First call returns RateLimited. Second call (the retry) hangs forever

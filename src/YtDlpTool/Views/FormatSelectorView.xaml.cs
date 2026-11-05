@@ -1,6 +1,6 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 using YtDlpTool.Domain.Models;
 using YtDlpTool.ViewModels;
 
@@ -13,36 +13,34 @@ public partial class FormatSelectorView : UserControl
     public FormatSelectorView()
     {
         InitializeComponent();
-        DataContextChanged += (_, _) => RefreshSelection();
-        Loaded += (_, _) => RefreshSelection();
+        DataContextChanged += OnDataContextChanged;
     }
 
-    private void OnModeClicked(object sender, RoutedEventArgs e)
+    // v1.5.0: the mode also changes from outside this control (a playlist or batch picks
+    // one), so the buttons follow the view model instead of reading it only once.
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (sender is not Button b || b.Tag is not string tag || Vm is null) return;
-        Vm.SelectedMode = Enum.Parse<DownloadMode>(tag);
+        if (e.OldValue is MainViewModel oldVm) oldVm.PropertyChanged -= OnVmChanged;
+        if (e.NewValue is MainViewModel newVm) newVm.PropertyChanged += OnVmChanged;
         RefreshSelection();
+    }
+
+    private void OnVmChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.SelectedMode)) RefreshSelection();
+    }
+
+    private void OnModeChecked(object sender, RoutedEventArgs e)
+    {
+        if (sender is RadioButton { Tag: string tag } && Vm is not null)
+            Vm.SelectedMode = Enum.Parse<DownloadMode>(tag);
     }
 
     private void RefreshSelection()
     {
         if (Vm is null) return;
-        ApplyVisual(AudioBtn, Vm.SelectedMode == DownloadMode.AudioOnly);
-        ApplyVisual(BothBtn,  Vm.SelectedMode == DownloadMode.AudioAndVideo);
-        ApplyVisual(VideoBtn, Vm.SelectedMode == DownloadMode.VideoOnly);
-    }
-
-    private static void ApplyVisual(Button b, bool selected)
-    {
-        if (selected)
-        {
-            b.Background = (Brush)Application.Current.FindResource("Brush.Accent");
-            b.Foreground = Brushes.White;
-        }
-        else
-        {
-            b.Background = Brushes.Transparent;
-            b.Foreground = (Brush)Application.Current.FindResource("Brush.TextSecondary");
-        }
+        BothBtn.IsChecked = Vm.SelectedMode == DownloadMode.AudioAndVideo;
+        AudioBtn.IsChecked = Vm.SelectedMode == DownloadMode.AudioOnly;
+        VideoBtn.IsChecked = Vm.SelectedMode == DownloadMode.VideoOnly;
     }
 }

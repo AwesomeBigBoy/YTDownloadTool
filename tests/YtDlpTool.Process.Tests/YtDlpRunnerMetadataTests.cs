@@ -21,6 +21,36 @@ public class YtDlpRunnerMetadataTests
     }
 
     [Fact]
+    public async Task FetchMetadata_CarriesFormatWidth()
+    {
+        // v1.5.0: the quality list labels vertical videos (Shorts) by their shorter side,
+        // which needs yt-dlp's width as well as its height.
+        var runner = new YtDlpRunner(FakeYtDlpLocator.Path());
+        var result = await runner.FetchMetadataAsync("https://www.youtube.com/watch?v=FAKE0001234");
+
+        Assert.True(result.IsSuccess, result.ErrorStderr);
+        var f299 = Assert.Single(result.Metadata!.Formats, f => f.FormatId == "299");
+        Assert.Equal(1920, f299.Width);
+        Assert.Equal(1080, f299.Height);
+    }
+
+    [Fact]
+    public async Task FetchMetadata_StoryboardsCarryNoCodecs_AndHdrIsMarked()
+    {
+        // The quality list leaves out formats with neither codec (yt-dlp's "none") and
+        // ranks HDR below SDR, so both facts have to survive the mapping.
+        var runner = new YtDlpRunner(FakeYtDlpLocator.Path());
+        var result = await runner.FetchMetadataAsync("https://www.youtube.com/watch?v=FAKE0001234");
+
+        Assert.True(result.IsSuccess, result.ErrorStderr);
+        var storyboard = Assert.Single(result.Metadata!.Formats, f => f.FormatId == "sb0");
+        Assert.Null(storyboard.VideoCodec);
+        Assert.Null(storyboard.AudioCodec);
+        Assert.Equal("HDR10", Assert.Single(result.Metadata.Formats, f => f.FormatId == "337").DynamicRange);
+        Assert.Equal("SDR", Assert.Single(result.Metadata.Formats, f => f.FormatId == "299").DynamicRange);
+    }
+
+    [Fact]
     public async Task FetchMetadata_SimulatedError_ReturnsFailure()
     {
         var runner = new YtDlpRunner(FakeYtDlpLocator.Path());

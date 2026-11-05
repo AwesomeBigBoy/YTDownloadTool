@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using YtDlpTool.Domain.Models;
+using YtDlpTool.Interop;
 using YtDlpTool.Domain.Updates;
 using YtDlpTool.Process;
 
@@ -18,6 +19,7 @@ public partial class SettingsDialog : Window
     public SettingsDialog(AppHost host)
     {
         InitializeComponent();
+        SourceInitialized += (_, _) => DarkTitleBar.Apply(this);
         _host = host;
         _selectedSaveDir = host.Config.DefaultSaveDirectory;
         LoadFromConfig();
@@ -33,9 +35,6 @@ public partial class SettingsDialog : Window
         DefaultDirText.Text = _selectedSaveDir;
         ConcurrencySlider.Value = _host.Config.ConcurrentDownloads;
         SelectComboTag(FrequencyCombo, _host.Config.AppCheckFrequency.ToString());
-        EnableYtDlpUpdates.IsChecked = _host.Config.YtDlpCheckFrequency != UpdateCheckFrequency.Never;
-        EnableFfmpegUpdates.IsChecked = _host.Config.FfmpegCheckFrequency != UpdateCheckFrequency.Never;
-        SelectComboTag(ThemeCombo, _host.Config.Theme.ToString());
         AllowUntrustedCertificatesCheckbox.IsChecked = _host.Config.AllowUntrustedCertificates;
     }
 
@@ -61,7 +60,6 @@ public partial class SettingsDialog : Window
     }
 
     private void OnOpenLogs(object sender, RoutedEventArgs e) => OpenFolder(_host.Paths.LogsDirectory);
-    private void OnOpenDownloads(object sender, RoutedEventArgs e) => OpenFolder(_host.Config.DefaultSaveDirectory);
     private static void OpenFolder(string p)
     {
         try { Directory.CreateDirectory(p); System.Diagnostics.Process.Start(new ProcessStartInfo("explorer.exe", p) { UseShellExecute = true }); }
@@ -70,7 +68,7 @@ public partial class SettingsDialog : Window
 
     private void OnAbout(object sender, RoutedEventArgs e)
     {
-        MessageBox.Show(
+        AppDialog.Show(this,
             $"YtDlpTool v{MainWindow.GetAppVersion()}\n\nSigstore 簽署者：" +
             "https://github.com/AwesomeBigBoy/YTDownloadTool/.github/workflows/release.yml\n\n" +
             "授權：MIT (本工具)\nyt-dlp：Unlicense\nffmpeg：GPL/LGPL",
@@ -97,7 +95,7 @@ public partial class SettingsDialog : Window
                   "\n\n" +
                   "此資訊只顯示於這個對話框，不會寫入任何檔案。" +
                   "關閉對話框後即消失。";
-        MessageBox.Show(msg, "已注入的根 CA 指紋",
+        AppDialog.Show(this, msg, "已注入的根 CA 指紋",
             MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
@@ -133,9 +131,9 @@ public partial class SettingsDialog : Window
         cfg.ConcurrentDownloads = (int)ConcurrencySlider.Value;
         _host.Queue.MaxConcurrency = cfg.ConcurrentDownloads;
         cfg.AppCheckFrequency = ParseFrequency(FrequencyCombo);
-        cfg.YtDlpCheckFrequency = EnableYtDlpUpdates.IsChecked == true ? UpdateCheckFrequency.Weekly : UpdateCheckFrequency.Never;
-        cfg.FfmpegCheckFrequency = EnableFfmpegUpdates.IsChecked == true ? UpdateCheckFrequency.Weekly : UpdateCheckFrequency.Never;
-        cfg.Theme = ParseTheme(ThemeCombo);
+        // v1.5.0: YtDlpCheckFrequency / FfmpegCheckFrequency / Theme are no longer
+        // edited here (the checkboxes gated nothing; the UI is dark-only). Their stored
+        // values are left exactly as they were.
 
         var allowUntrustedChanged = cfg.AllowUntrustedCertificates != newAllowUntrusted;
         if (allowUntrustedChanged)
@@ -151,7 +149,6 @@ public partial class SettingsDialog : Window
         }
         cfg.AllowUntrustedCertificates = newAllowUntrusted;
         _host.ConfigStore.Save(cfg);
-        ((App)Application.Current).ThemeService.Apply(cfg.Theme);
         DialogResult = true;
         Close();
 
@@ -169,10 +166,6 @@ public partial class SettingsDialog : Window
     private static UpdateCheckFrequency ParseFrequency(ComboBox c) =>
         c.SelectedItem is ComboBoxItem it && it.Tag is string tag &&
         Enum.TryParse<UpdateCheckFrequency>(tag, out var f) ? f : UpdateCheckFrequency.Weekly;
-
-    private static ThemePreference ParseTheme(ComboBox c) =>
-        c.SelectedItem is ComboBoxItem it && it.Tag is string tag &&
-        Enum.TryParse<ThemePreference>(tag, out var t) ? t : ThemePreference.System;
 
     // -------- Fix 1: manual "check now & update" trigger --------
     private async void OnCheckUpdateClicked(object sender, RoutedEventArgs e)
@@ -261,12 +254,18 @@ public partial class SettingsDialog : Window
                 string.Equals(e.Name, "YtDlpTool.exe", StringComparison.OrdinalIgnoreCase));
             if (appExeUpdated)
             {
-                MessageBox.Show(
+                AppDialog.Show(this,
                     "YtDlpTool 主程式已更新完成，將立刻重新啟動套用新版本。",
                     "更新完成",
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 App.RestartApplication();
                 return;
+            }
+            if (YtDlpUpdateFinisher.Includes(entries))
+            {
+                UpdateStatusText.Text = "正在安裝 yt-dlp 元件…";
+                var activation = await YtDlpUpdateFinisher.FinishAsync(_host, this, "settings_check").ConfigureAwait(true);
+                UpdateStatusText.Text = activation.IsFixed ? "✓ 已更新到最新版本" : activation.Message;
             }
             try { await Task.Delay(2000, ct).ConfigureAwait(true); }
             catch (OperationCanceledException) { return; }
@@ -353,6 +352,12 @@ public partial class SettingsDialog : Window
             {
                 RedownloadStatusText.Text = "✓ 元件已重新下載完成";
                 RedownloadProgressBar.Value = 100;
+                if (YtDlpUpdateFinisher.Includes(targets))
+                {
+                    RedownloadStatusText.Text = "正在安裝 yt-dlp 元件…";
+                    var activation = await YtDlpUpdateFinisher.FinishAsync(_host, this, "settings_redownload").ConfigureAwait(true);
+                    RedownloadStatusText.Text = activation.IsFixed ? "✓ 元件已重新下載並換上" : activation.Message;
+                }
                 try { await Task.Delay(2000, ct).ConfigureAwait(true); }
                 catch (OperationCanceledException) { return; }
                 RedownloadStatusText.Visibility = Visibility.Collapsed;

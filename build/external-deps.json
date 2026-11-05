@@ -1,13 +1,10 @@
 {
   "yt-dlp": {
-    "version": "2026.08.19",
-    "_comment_v1.3.0": "v1.3.0+ builds yt-dlp.exe from upstream source via build/build-patched-ytdlp.ps1 instead of downloading the prebuilt binary. The runtime hook in build/yt-dlp-patch/ lowers OpenSSL SECLEVEL when the env var YTDLP_RELAX_SECLEVEL=1 is set; otherwise yt-dlp behaves identically to upstream. See build/yt-dlp-patch/README.md for the audit trail.",
-    "_comment_v1.4.0": "Built with PyInstaller --onedir, not --onefile, and shipped as bin/yt-dlp-pkg.zip. An onefile binary re-extracts its whole ~40MB bundle to a fresh %TEMP%/_MEIxxxxxx on EVERY run, so AV rescans it every time: two field machines measured 18-24s of that before yt-dlp ran a single line of its own code. See src/YtDlpTool.Process/YtDlpLayout.cs. The version bump from 2026.03.17 is REQUIRED, not incidental: UpdateChecker compares this string against what `yt-dlp --version` reports on the user's machine, so an unchanged version means existing installs would never be offered the new layout.",
-    "upstream_repo": "https://github.com/yt-dlp/yt-dlp",
-    "upstream_tag": "2026.08.19",
-    "upstream_source_zip_sha256": "ca8070b2c4c6de9e65a330ff7c01d6e0b25b128f32e3a6d323333fc2f5208005",
-    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe",
-    "sha256": ""
+    "version": "2026.10.26",
+    "_comment_v1.5.0": "v1.5.0+ ships upstream's OFFICIAL Windows onedir build (yt-dlp_win.zip) byte-for-byte, fetched and SHA-256-verified by build/fetch-external-deps.ps1, and delivered to existing installs as bin/yt-dlp-pkg.zip (the official zip already has yt-dlp.exe + _internal/ at its root, which is exactly what src/YtDlpTool.Process/YtDlpLayout.cs expands). v1.3.0-v1.4.0 built a patched yt-dlp.exe from source instead; endpoint security (an endpoint-protection agent's behaviour monitoring) held that unknown, unsigned binary ~27s per launch and then refused it with 'Access denied', while the official build ran in under a second on the same machine. The AllowUntrustedCertificates workaround that the patch carried is now a yt-dlp plugin: src/YtDlpTool.Process/Plugins/ytdlptool_tls_relax.py. Do not go back to building yt-dlp yourself.",
+    "_comment_version": "`version` MUST equal what `yt-dlp --version` prints: UpdateChecker compares the two, so any drift produces a permanent 'update available' prompt. fetch-external-deps.ps1 enforces this.",
+    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp_win.zip",
+    "sha256": "fd51b212cf8380c7a52ee08c0d6be7f3c59b2f2c832eaf7b45acfae6eab57419"
   },
   "ffmpeg": {
     "version": "8.1.1-essentials_build",

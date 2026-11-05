@@ -17,6 +17,39 @@ public class FileNameSanitizerTests
         Assert.Equal(expected, FileNameSanitizer.Sanitize(input));
     }
 
+    // ── v1.5.0: the quality goes into the name ─────────────────────────────────
+
+    [Fact]
+    public void WithLabel_PutsTheQualityAfterTheTitle()
+    {
+        Assert.Equal("Me at the zoo [1080p]", FileNameSanitizer.WithLabel("Me at the zoo", "1080p"));
+        Assert.Equal("a_b [129kbps]", FileNameSanitizer.WithLabel("a:b", "129kbps"));
+    }
+
+    [Fact]
+    public void WithLabel_WithoutALabel_IsTheTitle()
+    {
+        Assert.Equal("Me at the zoo", FileNameSanitizer.WithLabel("Me at the zoo", ""));
+    }
+
+    [Fact]
+    public void WithLabel_ALongTitleIsShortened_TheLabelIsKept()
+    {
+        var stem = FileNameSanitizer.WithLabel(new string('字', 300), "1080p 無聲");
+        Assert.True(stem.Length <= 200, $"{stem.Length} characters");
+        Assert.EndsWith(" [1080p 無聲]", stem);
+    }
+
+    [Fact]
+    public void WithLabel_ATitleEndingInDotsOrSpacesWhenShortened_StaysAValidName()
+    {
+        // " [1080p]" leaves 192 characters for the title: the cut lands on " ." here.
+        var stem = FileNameSanitizer.WithLabel(new string('a', 190) + " . " + new string('b', 50), "1080p");
+        Assert.DoesNotContain(" . [", stem);
+        Assert.DoesNotContain(".  [", stem);
+        Assert.EndsWith("a [1080p]", stem);
+    }
+
     [Fact]
     public void Sanitize_RemovesControlChars()
     {

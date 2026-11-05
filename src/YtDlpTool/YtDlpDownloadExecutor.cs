@@ -26,12 +26,17 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
     private readonly YtDlpRunner _ytDlp;
     private readonly FfmpegRunner _ffmpeg;
     private readonly AppLogger? _logger;
+    private readonly ConflictDecisions _conflicts;
+    // v1.5.0: the output names of the downloads in flight (one executor serves the queue).
+    private readonly OutputNames _names = new();
 
-    public YtDlpDownloadExecutor(YtDlpRunner ytDlp, FfmpegRunner ffmpeg, AppLogger? logger = null)
+    public YtDlpDownloadExecutor(YtDlpRunner ytDlp, FfmpegRunner ffmpeg, AppLogger? logger = null,
+        ConflictDecisions? conflicts = null)
     {
         _ytDlp = ytDlp;
         _ffmpeg = ffmpeg;
         _logger = logger;
+        _conflicts = conflicts ?? new ConflictDecisions();
     }
 
     public async Task<DownloadExecutionResult> ExecuteAsync(
@@ -44,33 +49,66 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
         // default folder so we ensure it exists right before launching the process.
         try { Directory.CreateDirectory(job.SaveDirectory); } catch { }
 
-        var sanitizedStem = FileNameSanitizer.Sanitize(job.Title);
-
-        // Conflict probe applies to the FINAL output path. The intermediate
-        // ".media" / ".cut" stems are deliberately disjoint so they never
-        // collide with anything the user might see.
-        var probableOutput = ProbeProbableOutputPath(job, sanitizedStem);
-        var resolvedStem = sanitizedStem;
-        var forceOverwriteFinal = false;
-        if (probableOutput is not null && File.Exists(probableOutput))
-        {
-            var conflictResolution = await ShowConflictDialogOnUiThreadAsync(probableOutput).ConfigureAwait(false);
-            if (conflictResolution == FilenameConflictResolution.Cancel)
-                return new DownloadExecutionResult(false, null, null, WasCancelled: true);
-            if (conflictResolution == FilenameConflictResolution.AutoRename)
-                resolvedStem = NextAvailableStem(job.SaveDirectory, sanitizedStem, Path.GetExtension(probableOutput));
-            else if (conflictResolution == FilenameConflictResolution.Overwrite)
-                forceOverwriteFinal = true;
-        }
-
+        // v1.5.0: the quality goes into the name — 「標題 [1080p].mp4」, 「標題 [129kbps].m4a」 —
+        // so a 1080p and a 720p copy of one video sit side by side instead of colliding.
+        var sanitizedStem = FileNameSanitizer.WithLabel(job.Title, QualityOptions.FileNameLabel(job.Mode, job.ChosenFormat));
         var finalExt = ExtensionForMode(job) ?? ".mp4";
-        var finalPath = Path.Combine(job.SaveDirectory, resolvedStem + finalExt);
-        // forceOverwriteFinal is intentionally retained for parity with the legacy
-        // single-pass branch — we always pass -y to ffmpeg's mux/cut so the flag is
-        // not load-bearing, but it documents that the user agreed to overwrite.
-        _ = forceOverwriteFinal;
+        bool Finished(string stem) => File.Exists(Path.Combine(job.SaveDirectory, stem + finalExt));
 
-        return await RunPipelineAsync(job, resolvedStem, finalPath, progress, cancellationToken).ConfigureAwait(false);
+        // v1.5.0: the name is this download's until it ends (OutputNames). When another
+        // download in this folder is writing the same name right now — the same video queued
+        // twice, two videos with the same title — this one takes the next free name, as
+        // 自動改名 would; the 檔案已存在 probe below only sees finished files.
+        var resolvedStem = sanitizedStem;
+        var claim = _names.TryClaim(job.SaveDirectory, sanitizedStem);
+        try
+        {
+            if (claim is null)
+            {
+                (resolvedStem, claim) = _names.ClaimFree(job.SaveDirectory, sanitizedStem, Finished);
+                _logger?.Info("download.name_in_use", new Dictionary<string, string>
+                {
+                    ["job_hash"] = job.Id.ToString("N")[..8],
+                    ["suffix"] = resolvedStem[sanitizedStem.Length..],
+                });
+            }
+            // Conflict probe applies to the FINAL output path. The intermediate
+            // ".media" / ".cut" stems are deliberately disjoint so they never
+            // collide with anything the user might see.
+            else if (Finished(sanitizedStem))
+            {
+                var probableOutput = Path.Combine(job.SaveDirectory, sanitizedStem + finalExt);
+                // v1.5.0: tell the queue's no-progress watchdog that we are waiting for the
+                // user, not stalled — otherwise a dialog left open > 90 s got the job cancelled
+                // and reported as 「下載卡住」. The ordinary report afterwards resumes it.
+                progress.Report(new DownloadProgressSnapshot(0, null, null, WaitingForUser: true));
+                // v1.5.0: one dialog at a time, and a batch's "the same for the rest" answers
+                // its other downloads without asking (ConflictDecisions). Waiting for another
+                // download's dialog is waiting for the user too.
+                var conflictResolution = await _conflicts.DecideAsync(job.BatchId,
+                    offerForTheRest => ShowConflictDialogOnUiThreadAsync(probableOutput, offerForTheRest),
+                    cancellationToken).ConfigureAwait(false);
+                // Cancelled while its dialog was up or waiting its turn: start nothing.
+                cancellationToken.ThrowIfCancellationRequested();
+                progress.Report(new DownloadProgressSnapshot(0, null, null));
+                if (conflictResolution == FilenameConflictResolution.Cancel)
+                    return new DownloadExecutionResult(false, null, null, WasCancelled: true);
+                if (conflictResolution == FilenameConflictResolution.AutoRename)
+                {
+                    claim.Dispose();
+                    (resolvedStem, claim) = _names.ClaimFree(job.SaveDirectory, sanitizedStem, Finished);
+                }
+                // 覆蓋 keeps the name this download already holds; ffmpeg's mux/cut always
+                // pass -y, and the .media path deletes the old file only after success.
+            }
+
+            var finalPath = Path.Combine(job.SaveDirectory, resolvedStem + finalExt);
+            return await RunPipelineAsync(job, resolvedStem, finalPath, progress, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            claim?.Dispose();
+        }
     }
 
     /// <summary>
@@ -92,24 +130,39 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
         // Intermediate stems. ".media" so the raw download never collides with
         // the final file; ".cut" so the ffmpeg-trimmed media never collides
         // with the raw download.
-        var mediaStem = resolvedStem + ".media";
+        //
+        // v1.5.0: with nothing to do after yt-dlp (no clip, no subtitles) it writes the
+        // final name itself. The ".media" detour ended in a rename of the whole file,
+        // which endpoint security on managed PCs holds ~6 s for an .mp4 (measured
+        // 2026-11-04, 下載→已完成 of a 19-s clip: 42.8 s; an .m4a moves in ~50 ms).
+        //   - Not when the final file exists (覆蓋): the old file stays until the new one
+        //     is complete, as before.
+        //   - Not for 音訊: converting to MP3 first downloads "<title>.webm" and deletes it
+        //     afterwards — under the final stem that could be a file of the user's.
+        //     The work files of 影片 / 無聲影片 are "<title>.f137.mp4" and ".part" files,
+        //     which DownloadLeftovers tells apart from anything else.
+        var direct = !hasClip && !hasSubs && job.Mode != DownloadMode.AudioOnly && !File.Exists(finalPath);
+        var mediaStem = direct ? resolvedStem : resolvedStem + ".media";
+
+        // v1.5.0: a clean start under this name. yt-dlp no longer gets --force-overwrites,
+        // which also switches --continue off — so a 403 retry or a throttle re-extract
+        // started over from byte 0 — and what an earlier run left here (possibly a
+        // different video with the same title) must not be resumed into this one.
+        ClearLeftovers(job.SaveDirectory, mediaStem, direct);
 
         // ----- Step 1: download media only -----
         progress.Report(new DownloadProgressSnapshot(0, null, null));
         var mediaProgressMax = hasClip ? 65.0 : 80.0;
-        var mediaProgress = new Progress<ProgressReport>(p =>
+        // Inline, like the queue's own progress: forwarded on yt-dlp's reader thread, in order.
+        var mediaProgress = new InlineProgress<ProgressReport>(p =>
             progress.Report(new DownloadProgressSnapshot(
                 Math.Min(mediaProgressMax, p.Percent * mediaProgressMax / 100.0),
-                p.BytesPerSecond, p.Eta)));
+                p.BytesPerSecond, p.Eta, Processing: p.Processing)));
 
-        // v1.1.32: EmbedThumbnail OFF for VideoOnly mode. yt-dlp's thumbnail
-        // embed step on a single-stream video file goes through an ffprobe
-        // sub-invocation (to inspect thumbnail metadata) that fails on installs
-        // missing ffprobe.exe — producing a misleading "ffprobe not found" /
-        // ComponentMissing error at ~70 % download. v1.1.32 also bundles
-        // ffprobe.exe so this is belt-and-suspenders; but a video-only silent
-        // file gains little from an embedded cover image anyway.
-        var embedThumbnail = !hasClip && job.Mode != DownloadMode.VideoOnly;
+        // v1.1.32: EmbedThumbnail OFF for VideoOnly mode (its ffprobe step failed on
+        // installs without ffprobe.exe). v1.5.0: off for 影片 too — the cover now goes
+        // into audio files only; see CoverArt for why.
+        var embedThumbnail = CoverArt.Embeds(job.Mode, hasClip);
         var mediaRequest = new DownloadRequest(
             Url: job.Url,
             Mode: job.Mode,
@@ -119,7 +172,8 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
             SaveDirectory: job.SaveDirectory,
             SanitizedFileStem: mediaStem,
             EmbedThumbnail: embedThumbnail,
-            ForceOverwrite: true);       // intermediate stem — safe to clobber
+            // Cleared above instead: --force-overwrites implies --no-continue.
+            ForceOverwrite: false);
 
         var mediaSw = Stopwatch.StartNew();
         var mediaResult = await _ytDlp.DownloadAsync(mediaRequest, mediaProgress, cancellationToken).ConfigureAwait(false);
@@ -127,7 +181,8 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
 
         if (mediaResult.WasCancelled)
         {
-            TryDeleteByStem(job.SaveDirectory, mediaStem);
+            ClearLeftovers(job.SaveDirectory, mediaStem, direct);
+            if (direct) DeleteUnfinished(finalPath, mediaResult.OutputFilePath, mediaStem);
             MappedError? diag = null;
             if (!string.IsNullOrEmpty(mediaResult.ErrorStderr))
                 diag = new MappedError(ErrorCategory.UnknownError, "", "E-CANCEL-DIAG",
@@ -136,13 +191,28 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
         }
         if (!mediaResult.IsSuccess)
         {
-            TryDeleteByStem(job.SaveDirectory, mediaStem);
+            ClearLeftovers(job.SaveDirectory, mediaStem, direct);
+            if (direct) DeleteUnfinished(finalPath, mediaResult.OutputFilePath, mediaStem);
             return new DownloadExecutionResult(false, null,
                 ErrorMapper.Map(mediaResult.ErrorStderr ?? ""), false);
         }
 
-        // Verify a real media file actually landed before continuing.
-        var mediaProbe = MediaOutputProbe.VerifyMediaOutputExists(job.SaveDirectory, mediaStem);
+        // Verify a real media file actually landed before continuing. Under the final
+        // name only that file counts: a stem-wide probe would also see the user's own
+        // "<title>.m4a" next to a missing "<title>.mp4".
+        var directMedia = direct ? DirectOutput(finalPath, mediaResult.OutputFilePath, mediaStem) : null;
+        if (direct && directMedia is null)
+        {
+            ClearLeftovers(job.SaveDirectory, mediaStem, direct);
+            return new DownloadExecutionResult(false, null,
+                new MappedError(ErrorCategory.UnknownError,
+                    "下載未產生影音檔案，僅有附件（字幕/縮圖）。請嘗試其他格式或畫質。",
+                    "E-NOMEDIA1", false, ""),
+                WasCancelled: false);
+        }
+        var mediaProbe = direct
+            ? (found: true, sidecarPaths: (IReadOnlyList<string>)Array.Empty<string>())
+            : MediaOutputProbe.VerifyMediaOutputExists(job.SaveDirectory, mediaStem);
         if (!mediaProbe.found)
         {
             foreach (var leftover in mediaProbe.sidecarPaths)
@@ -156,7 +226,7 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
                 WasCancelled: false);
         }
 
-        var mediaPath = mediaResult.OutputFilePath;
+        var mediaPath = directMedia ?? mediaResult.OutputFilePath;
         if (string.IsNullOrEmpty(mediaPath) || !File.Exists(mediaPath))
         {
             // yt-dlp's progress parser may miss the Destination: line on certain
@@ -379,11 +449,18 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
             // No subs — just rename the (possibly cut) media to finalPath.
             // Scrub intermediate sidecars (e.g. ".media.jpg" from --embed-thumbnail)
             // BEFORE the move so they don't get left orphaned under the old stem.
-            CleanupOrphanSidecars(currentMediaPath);
+            // v1.5.0: not under the final name (direct): nothing writes a thumbnail there
+            // (CoverArt: 音訊 only, which never goes direct), and "<title>.jpg" next to
+            // it would be the user's.
+            if (!direct) CleanupOrphanSidecars(currentMediaPath);
             try
             {
-                if (File.Exists(finalPath)) File.Delete(finalPath);
-                File.Move(currentMediaPath, finalPath);
+                // Written under the final name already (direct): nothing to move.
+                if (!string.Equals(currentMediaPath, finalPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (File.Exists(finalPath)) File.Delete(finalPath);
+                    File.Move(currentMediaPath, finalPath);
+                }
             }
             catch
             {
@@ -393,7 +470,7 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
         }
 
         progress.Report(new DownloadProgressSnapshot(100.0, null, null));
-        CleanupOrphanSidecars(finalPath);
+        if (!direct) CleanupOrphanSidecars(finalPath);
         return new DownloadExecutionResult(true, finalPath, null, false);
     }
 
@@ -413,6 +490,46 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
             }
         }
         catch { /* best effort */ }
+    }
+
+    /// <summary>
+    /// yt-dlp's work files under <paramref name="stem"/>. Under a ".media" stem every file
+    /// is ours; under the final name only the work files are (DownloadLeftovers), never a
+    /// finished "<title>.mp4" or anything else of the user's.
+    /// </summary>
+    private static void ClearLeftovers(string dir, string stem, bool direct)
+    {
+        if (direct) DownloadLeftovers.Delete(dir, stem);
+        else TryDeleteByStem(dir, stem);
+    }
+
+    /// <summary>
+    /// v1.5.0: a download under its final name that did not finish — cancelled, failed, or
+    /// stopped by the watchdog. yt-dlp merges into the final name before its post-processors
+    /// run, so a file may already be there; it is not one to keep, and OutputNames guarantees
+    /// no other download of this app writes that name (direct also means it did not exist
+    /// when this download started).
+    /// </summary>
+    private static void DeleteUnfinished(string finalPath, string? reported, string stem)
+    {
+        TryDelete(finalPath);
+        if (reported is not null &&
+            string.Equals(Path.GetDirectoryName(reported), Path.GetDirectoryName(finalPath), StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(Path.GetFileNameWithoutExtension(reported), stem, StringComparison.OrdinalIgnoreCase) &&
+            MediaOutputProbe.MediaExtensions.Contains(Path.GetExtension(reported), StringComparer.OrdinalIgnoreCase))
+            TryDelete(reported);
+    }
+
+    /// <summary>The finished file of a download written under its final name, or null.</summary>
+    private static string? DirectOutput(string finalPath, string? reported, string stem)
+    {
+        if (File.Exists(finalPath)) return finalPath;
+        // yt-dlp picked another container than ExtensionForMode expects.
+        return reported is not null && File.Exists(reported) &&
+               string.Equals(Path.GetFileNameWithoutExtension(reported), stem, StringComparison.OrdinalIgnoreCase) &&
+               MediaOutputProbe.MediaExtensions.Contains(Path.GetExtension(reported), StringComparer.OrdinalIgnoreCase)
+            ? reported
+            : null;
     }
 
     private static void TryDelete(string? path)
@@ -472,20 +589,6 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
         }
     }
 
-    private static string? ProbeProbableOutputPath(DownloadJob job, string stem)
-    {
-        var ext = ExtensionForMode(job);
-        if (ext is null) return null;
-        try
-        {
-            return Path.Combine(job.SaveDirectory, stem + ext);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
     private static string? ExtensionForMode(DownloadJob job) => job.Mode switch
     {
         DownloadMode.AudioOnly =>
@@ -496,31 +599,20 @@ public sealed class YtDlpDownloadExecutor : IDownloadExecutor
         _ => null
     };
 
-    private static string NextAvailableStem(string saveDir, string stem, string extension)
-    {
-        for (var i = 2; i < 1000; i++)
-        {
-            var candidate = $"{stem}_{i}";
-            var candidatePath = Path.Combine(saveDir, candidate + extension);
-            if (!File.Exists(candidatePath)) return candidate;
-        }
-        // Fallback: timestamp-suffix
-        return $"{stem}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
-    }
-
-    private static Task<FilenameConflictResolution> ShowConflictDialogOnUiThreadAsync(string conflictingPath)
+    private static Task<(FilenameConflictResolution, bool)> ShowConflictDialogOnUiThreadAsync(
+        string conflictingPath, bool offerForTheRest)
     {
         var app = Application.Current;
         if (app?.Dispatcher is null)
-            return Task.FromResult(FilenameConflictResolution.Overwrite);
+            return Task.FromResult((FilenameConflictResolution.Overwrite, false));
         return app.Dispatcher.InvokeAsync(() =>
         {
-            var dlg = new FilenameConflictDialog(conflictingPath)
+            var dlg = new FilenameConflictDialog(conflictingPath, offerForTheRest)
             {
                 Owner = app.MainWindow
             };
             dlg.ShowDialog();
-            return dlg.Resolution;
+            return (dlg.Resolution, dlg.ForTheRest);
         }).Task;
     }
 }

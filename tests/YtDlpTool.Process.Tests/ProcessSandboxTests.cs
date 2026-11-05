@@ -130,6 +130,24 @@ public class ProcessSandboxTests
     }
 
     [Fact]
+    public async Task Run_AStdoutListenerThatThrows_IsContained()
+    {
+        // onStdout runs on the reader thread; an exception there used to end the process
+        // (the queue's progress chain runs inside it since v1.5.0).
+        var seen = 0;
+        var args = new ProcessStartArguments(
+            ExecutablePath: CmdPath,
+            Arguments: new[] { "/c", "echo one& echo two" });
+        var result = await ProcessSandbox.RunAsync(args, _ =>
+        {
+            Interlocked.Increment(ref seen);
+            throw new InvalidOperationException("listener bug");
+        });
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(2, seen);
+    }
+
+    [Fact]
     public async Task Run_Cancellation_KillsProcess()
     {
         var args = new ProcessStartArguments(
@@ -152,6 +170,46 @@ public class ProcessSandboxTests
             Timeout: TimeSpan.FromMilliseconds(500));
         var result = await ProcessSandbox.RunAsync(args);
         Assert.True(result.TimedOut);
+    }
+
+    [Fact]
+    public async Task Run_AFileThatIsNotAProgram_IsReportedAsDamaged()
+    {
+        // A download cut short or a disk error leaves yt-dlp.exe with the right name and
+        // the wrong bytes. The health banner then offers 修復, if the wording says so.
+        var broken = Path.Combine(Path.GetTempPath(), "ytdlp-broken-" + Guid.NewGuid().ToString("N") + ".exe");
+        File.WriteAllText(broken, "this is not a program");
+        try
+        {
+            var result = await ProcessSandbox.RunAsync(new ProcessStartArguments(broken, Array.Empty<string>()));
+
+            Assert.Equal(-1, result.ExitCode);
+            Assert.Contains("已損毀", result.Stderr);
+        }
+        finally { File.Delete(broken); }
+    }
+
+    [Fact]
+    public async Task Run_ADosHeaderWithoutAWindowsProgram_IsNeverHandedToWindows()
+    {
+        // The damage that made Windows show its own "Unsupported 16-bit application" box
+        // (found 2026-11-04 simulating a broken install): an "MZ" header and no PE image.
+        var broken = Path.Combine(Path.GetTempPath(), "ytdlp-dos-" + Guid.NewGuid().ToString("N") + ".exe");
+        var bytes = new byte[4096];
+        bytes[0] = (byte)'M';
+        bytes[1] = (byte)'Z';
+        File.WriteAllBytes(broken, bytes);
+        try
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var result = await ProcessSandbox.RunAsync(new ProcessStartArguments(broken, Array.Empty<string>()));
+
+            Assert.Equal(-1, result.ExitCode);
+            Assert.Contains("已損毀", result.Stderr);
+            Assert.Equal(0, result.Pid);   // never started
+            Assert.True(clock.ElapsedMilliseconds < 2000, $"took {clock.ElapsedMilliseconds} ms");
+        }
+        finally { File.Delete(broken); }
     }
 
     [Fact]

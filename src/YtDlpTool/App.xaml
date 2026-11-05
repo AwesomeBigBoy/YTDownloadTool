@@ -5,12 +5,12 @@
              StartupUri="MainWindow.xaml">
     <Application.Resources>
         <ResourceDictionary>
+            <!-- v1.5.0: one dark theme, no runtime switching (Theme.Light/Dark and
+                 ThemeService were removed with the Aurora UI). -->
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="/Resources/Strings.zh-TW.xaml" />
-                <ResourceDictionary Source="/Resources/Theme.Light.xaml" />
                 <ResourceDictionary Source="/Resources/Theme.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <conv:StatusToColorConverter x:Key="StatusToColorConverter" />
             <conv:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
             <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
         </ResourceDictionary>

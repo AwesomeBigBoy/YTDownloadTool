@@ -169,6 +169,10 @@ public sealed class DownloadQueue : IDisposable
         // and a flag the watchdog flips when it's the one who cancelled the job.
         long lastProgressTicks = DateTime.UtcNow.Ticks;
         var stuckCancelled = 0; // 0 = not stuck; 1 = watchdog tripped
+        // v1.5.0: 1 while the executor waits on the user (filename-conflict dialog). Time
+        // spent deciding is not a stall; before this, leaving the dialog open > 90 s got
+        // the job cancelled and then reported as E-STUCK01 once the user clicked.
+        var waitingForUser = 0;
         // Fix E: gate all terminal event emissions so a watchdog-trip racing with a
         // real executor failure doesn't produce two JobFailedEvents in a row.
         var terminalEmitted = 0;
@@ -183,11 +187,30 @@ public sealed class DownloadQueue : IDisposable
             });
             _onEvent(new JobStartedEvent(job));
 
-            var progress = new Progress<DownloadProgressSnapshot>(snap =>
+            // On the reporting thread (InlineProgress): the UI throttles what reaches it. That
+            // thread is yt-dlp's stdout reader, where an exception would end the process, so
+            // a listener that throws is logged once and otherwise ignored.
+            var listenerFailed = 0;
+            var progress = new InlineProgress<DownloadProgressSnapshot>(snap =>
             {
                 Interlocked.Exchange(ref lastProgressTicks, DateTime.UtcNow.Ticks);
+                Interlocked.Exchange(ref waitingForUser, snap.WaitingForUser ? 1 : 0);
+                // A waiting marker only steers the watchdog; it is not progress to show.
+                if (snap.WaitingForUser) return;
                 job.ReportProgress(snap.Percent, snap.BytesPerSecond, snap.Eta);
-                _onEvent(new JobProgressEvent(job, snap));
+                try
+                {
+                    _onEvent(new JobProgressEvent(job, snap));
+                }
+                catch (Exception ex)
+                {
+                    if (Interlocked.Exchange(ref listenerFailed, 1) == 0)
+                        _logger?.Warn("download.progress.listener_failed", new Dictionary<string, string>
+                        {
+                            ["job_hash"] = jobHash,
+                            ["error"] = ex.GetType().Name + ": " + ex.Message,
+                        });
+                }
             });
 
             // Start the watchdog: every `_watchdogInterval`, check the gap since the last
@@ -201,6 +224,7 @@ public sealed class DownloadQueue : IDisposable
                     {
                         try { await Task.Delay(_watchdogInterval, watchdogStop.Token).ConfigureAwait(false); }
                         catch (OperationCanceledException) { return; }
+                        if (Volatile.Read(ref waitingForUser) == 1) continue;
                         var last = new DateTime(Interlocked.Read(ref lastProgressTicks), DateTimeKind.Utc);
                         if (DateTime.UtcNow - last > _noProgressTimeout)
                         {

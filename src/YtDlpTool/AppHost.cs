@@ -117,22 +117,55 @@ public sealed class AppHost : IDisposable
             });
         }
 
-        StateJournal = new StateJournal(Paths.StateLog);
-
-        // v1.4.0: expand the packaged one-directory yt-dlp if an update delivered one.
-        // Must happen BEFORE ResolveExecutable so this launch already uses it. See
-        // YtDlpLayout for why yt-dlp is no longer a single self-extracting exe.
-        var expand = YtDlpLayout.ExpandPackageIfPresent(Paths.BinDirectory, out var expandError);
-        if (expand != ExpandOutcome.NothingToDo)
+        // v1.5.0: AllowUntrustedCertificates is implemented by a yt-dlp plugin now, not
+        // by a patched yt-dlp.exe — our own PyInstaller build was being held ~27 s and
+        // then refused ("Access denied") by endpoint security, while the official build
+        // ran instantly. See YtDlpTlsPlugin. Written only for users who opted in, so
+        // everyone else runs upstream's yt-dlp completely unmodified.
+        string? tlsPluginDir = null;
+        var tlsPluginRoot = Path.Combine(Paths.DataRoot, "ytdlp-plugins");
+        if (Config.AllowUntrustedCertificates)
         {
-            Logger.Info("ytdlp.package.expand", new Dictionary<string, string>
+            tlsPluginDir = YtDlpTlsPlugin.Install(tlsPluginRoot, out var tlsPluginError);
+            Logger.Info("ytdlp.tls_plugin", new Dictionary<string, string>
             {
-                ["result"] = expand == ExpandOutcome.Expanded ? "ok" : "failed",
-                ["error"]  = expandError ?? "",
+                ["installed"] = (tlsPluginDir is not null).ToString(),
+                ["error"]     = tlsPluginError ?? "",
+            });
+        }
+        // v1.5.0: switched off (the setting applies after a restart) — nothing stays behind.
+        else if (YtDlpTlsPlugin.Remove(tlsPluginRoot, out var removeError) || removeError is not null)
+        {
+            Logger.Info("ytdlp.tls_plugin", new Dictionary<string, string>
+            {
+                ["removed"] = (removeError is null).ToString(),
+                ["error"]   = removeError ?? "",
             });
         }
 
+        StateJournal = new StateJournal(Paths.StateLog);
+
+        // v1.4.0: an update delivers yt-dlp as bin\yt-dlp-pkg.zip; see YtDlpLayout for why
+        // it is no longer a single self-extracting exe.
+        //
+        // v1.5.0: the package is expanded AFTER the window is up. Expanded here,
+        // synchronously, it kept the window from appearing for 28 s on the first launch
+        // after an update on a PC with real-time scanning (startup.begin →
+        // startup.apphost.created = 20.6 s), on every release that bumps yt-dlp. The
+        // directory path the runner is built with stays the same, so the swap can happen
+        // under it, and the warm-up waits for it (EnsureYtDlpReadyAsync). Only an install
+        // still on the legacy single file expands first, so that this launch already runs
+        // the fast build.
+        var packageWaiting = File.Exists(YtDlpLayout.PackagePath(Paths.BinDirectory));
+        var legacyOnly = !File.Exists(YtDlpLayout.DirectoryExePath(Paths.BinDirectory))
+                         && File.Exists(YtDlpLayout.LegacyExePath(Paths.BinDirectory));
+        if (packageWaiting && legacyOnly)
+            RunPackageSwap("startup_legacy", YtDlpLayout.LegacyExePath(Paths.BinDirectory));
+
         var ytDlpExe  = YtDlpLayout.ResolveExecutable(Paths.BinDirectory);
+        _ytDlpExecutable = ytDlpExe;
+        if (packageWaiting && !legacyOnly)
+            _pendingPackage = Task.Run(() => RunPackageSwap("startup", ytDlpExe));
         var ffmpegExe = Path.Combine(Paths.BinDirectory, "ffmpeg.exe");
         Logger.Info("ytdlp.executable", new Dictionary<string, string>
         {
@@ -149,7 +182,8 @@ public sealed class AppHost : IDisposable
             opensslConfPath: injectableOpensslConf,
             logger: Logger,
             // v1.4.0: must be explicit. yt-dlp no longer sits next to ffmpeg.exe.
-            ffmpegPath: ffmpegExe);
+            ffmpegPath: ffmpegExe,
+            tlsPluginDirectory: tlsPluginDir);
         Ffmpeg = new FfmpegRunner(ffmpegExe);
 
         Logger.Info("ytdlp.ca-bundle.inject", new Dictionary<string, string>
@@ -172,7 +206,7 @@ public sealed class AppHost : IDisposable
             owner: "AwesomeBigBoy", repo: "YTDownloadTool", logger: Logger);
         UpdateApplier = new UpdateApplier(UpdateHttp, sigstoreOpts, Paths, Logger);
 
-        var executor = new YtDlpDownloadExecutor(YtDlp, Ffmpeg, Logger);
+        var executor = new YtDlpDownloadExecutor(YtDlp, Ffmpeg, Logger, new ConflictDecisions());
         var journaledOnEvent = JournaledQueue.Wrap(StateJournal, OnQueueEvent);
         Queue = new DownloadQueue(executor, Config.ConcurrentDownloads, journaledOnEvent, Logger);
 
@@ -282,6 +316,14 @@ public sealed class AppHost : IDisposable
         return new(App: app, YtDlp: ytDlp, Ffmpeg: ffmpeg);
     }
 
+    // The yt-dlp path YtDlpRunner was built with; package activation compares against it
+    // to tell an in-place swap from one that needs a restart.
+    private readonly string _ytDlpExecutable;
+
+    // The background expansion of a package an update left behind (see the constructor);
+    // null when none was waiting. The warm-up probes only after it.
+    private readonly Task? _pendingPackage;
+
     public UpdateBannerViewModel BannerVm { get; } = new();
     public HealthBannerViewModel HealthVm { get; } = new();
 
@@ -316,9 +358,57 @@ public sealed class AppHost : IDisposable
         lock (_warmupGate)
         {
             if (forceRefresh || _ytDlpWarmup is null)
-                _ytDlpWarmup = ProbeYtDlpVersionAsync(WarmupTimeout);
+                _ytDlpWarmup = ProbeAfterPendingPackageAsync();
             return _ytDlpWarmup;
         }
+    }
+
+    // v1.5.0: a probe that ran during the startup swap would hit a half-moved directory
+    // and report a working install as broken.
+    private async Task<string> ProbeAfterPendingPackageAsync()
+    {
+        if (_pendingPackage is not null) await _pendingPackage.ConfigureAwait(false);
+        return await ProbeYtDlpVersionAsync(WarmupTimeout).ConfigureAwait(false);
+    }
+
+    private readonly object _packageSwapGate = new();
+
+    /// <summary>
+    /// v1.5.0: expands a waiting package (YtDlpLayout.ActivatePackage), one swap at a time:
+    /// the background swap at startup can still be running when 一鍵更新 finishes its own
+    /// download. (A second app instance never gets this far — StateJournal's exclusive
+    /// lock stops it at startup.)
+    /// </summary>
+    private ActivationOutcome RunPackageSwap(string trigger, string runningExecutable)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        ActivationOutcome outcome;
+        string? error;
+        lock (_packageSwapGate)
+        {
+            try
+            {
+                // Startup trusts the stamp of a package already in place (one that could not
+                // be deleted); 修復, 重新下載元件 and updates fetched it to replace what is there.
+                var force = trigger is not ("startup" or "startup_legacy");
+                outcome = YtDlpLayout.ActivatePackage(Paths.BinDirectory, runningExecutable, out error, force: force);
+            }
+            catch (Exception ex)
+            {
+                // Runs in the background and behind click handlers: never take the app down.
+                // The package stays, and the next launch tries again.
+                outcome = ActivationOutcome.NeedsRestart;
+                error = ex.Message;
+            }
+        }
+        Logger.Info("ytdlp.package.activate", new Dictionary<string, string>
+        {
+            ["result"]     = outcome.ToString(),
+            ["error"]      = error ?? "",
+            ["trigger"]    = trigger,
+            ["elapsed_ms"] = sw.ElapsedMilliseconds.ToString(),
+        });
+        return outcome;
     }
 
     /// <summary>
@@ -345,6 +435,10 @@ public sealed class AppHost : IDisposable
         // competing for a cold-start disk read of a ~30 MB binary.
         try { await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false); }
         catch (TaskCanceledException) { return; }
+
+        // v1.5.0: let a startup swap finish first, so the cold start measured below is
+        // yt-dlp's own and not the expansion's.
+        if (_pendingPackage is not null) await _pendingPackage.ConfigureAwait(false);
 
         // v1.3.7: shared warm-up, not a second private probe. See EnsureYtDlpReadyAsync.
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -375,15 +469,87 @@ public sealed class AppHost : IDisposable
                 "啟動檢查時，yt-dlp.exe 在時限內沒有回報版本號。這代表元件本身無法啟動，" +
                 "與網路連線無關——在這個狀態下解析網址一定會逾時失敗。\n\n" +
                 "請依序嘗試：\n\n" +
-                "1. 把整個程式資料夾移出「下載」資料夾，改放到桌面或個人目錄，然後重新開啟。" +
+                "1. 按提示列上的「修復」，程式會重新下載並驗證 yt-dlp 元件（約 24 MB）後立即換上。" +
+                "從 v1.4.0 以前的版本更新上來的電腦，多半做這一步就會恢復。\n\n" +
+                "2. 把整個程式資料夾移出「下載」資料夾，改放到桌面或個人目錄，然後重新開啟。" +
                 "從瀏覽器下載的壓縮檔解壓後會帶有封鎖標記，防毒對這類檔案的檢查特別嚴格。\n\n" +
-                "2. 檢查防毒軟體的隔離區，若 yt-dlp.exe 被隔離，請還原並加入信任清單。\n\n" +
-                "3. 至「設定 → 進階 → 重新下載元件」重新取得 yt-dlp.exe。\n\n" +
-                "4. 若以上都無效，請開啟命令提示字元，切換到本程式的 bin 目錄執行 " +
+                "3. 檢查防毒軟體的隔離區，若 yt-dlp.exe 被隔離，請還原並加入信任清單。\n\n" +
+                "4. 若以上都無效，請開啟命令提示字元，切換到本程式的 bin\\yt-dlp 目錄執行 " +
                 "「yt-dlp.exe --version」。若該指令在命令提示字元中也沒有輸出，" +
                 "問題出在系統阻擋了這支程式；若可以正常執行，請把 logs 資料夾內的紀錄檔回報給開發者。";
+            HealthVm.CanRepair = true;
             HealthVm.IsVisible = true;
         });
+    }
+
+    /// <summary>
+    /// v1.5.0: one-click 修復 on the health banner. Re-fetches ONLY the yt-dlp package from
+    /// the latest signed release (the full 重新下載元件 in Settings also pulls ~200 MB of
+    /// ffmpeg), installs it through UpdateApplier (SHA-256 + Sigstore, rollback on failure),
+    /// expands it immediately and re-probes.
+    ///
+    /// Why it exists: InstalledVersionProbe treats a failed --version probe as "unknown,
+    /// leave it alone" (v1.3.4 nag-loop fix). So on exactly the machines where endpoint
+    /// security refuses the pre-v1.5.0 self-built yt-dlp, the v1.4.0 updater installs the
+    /// new YtDlpTool.exe but never offers the new yt-dlp package. This is their way out,
+    /// on the banner that already tells them yt-dlp is broken.
+    /// </summary>
+    public async Task<YtDlpRepairResult> RepairYtDlpAsync(IProgress<UpdateApplyProgress> progress, CancellationToken ct)
+    {
+        // Empty installed versions make CheckAsync return the manifest regardless of what
+        // is installed; only its yt-dlp entries are applied.
+        var availability = await UpdateChecker.CheckAsync(new InstalledVersions(App: "0.0.0", YtDlp: "", Ffmpeg: ""), ct)
+            .ConfigureAwait(false);
+        if (availability.Manifest is null)
+            return new YtDlpRepairResult(false, false, availability.FailureReason ?? "無法取得元件清單");
+
+        var targets = availability.Manifest.Files.Where(f => f.Component == UpdateComponent.YtDlp).ToList();
+        if (targets.Count == 0)
+            return new YtDlpRepairResult(false, false, "元件清單中沒有 yt-dlp");
+
+        Logger.Info("ytdlp.repair.start", new Dictionary<string, string>
+        {
+            ["names"] = string.Join(",", targets.Select(t => t.Name)),
+        });
+        var applied = await UpdateApplier.ApplyAsync(targets, progress, ct).ConfigureAwait(false);
+        if (!applied.IsSuccess)
+            return new YtDlpRepairResult(false, false, applied.FailureReason ?? "下載或驗證失敗");
+
+        return await ActivateYtDlpPackageAsync("repair").ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// v1.5.0: the step every update path runs after UpdateApplier has written a yt-dlp
+    /// package — the update banner, Settings' 檢查更新 and 重新下載元件, and 修復. Expands
+    /// it now (YtDlpLayout.ActivatePackage) instead of on the next launch, re-probes, and
+    /// clears the health banner once yt-dlp answers.
+    /// </summary>
+    public async Task<YtDlpRepairResult> ActivateYtDlpPackageAsync(string trigger)
+    {
+        // Off the UI thread: under real-time scanning the extraction alone took 16 s, and
+        // the swap may wait out a scanner's hold on the fresh files.
+        var outcome = await Task.Run(() => RunPackageSwap(trigger, _ytDlpExecutable)).ConfigureAwait(false);
+        if (outcome == ActivationOutcome.NeedsRestart)
+            return new YtDlpRepairResult(false, true, "新的 yt-dlp 元件已下載，重新啟動程式後生效");
+
+        var version = await EnsureYtDlpReadyAsync(forceRefresh: true).ConfigureAwait(false);
+        var ok = !string.IsNullOrWhiteSpace(version);
+        Logger.Info("ytdlp.package.reprobe", new Dictionary<string, string>
+        {
+            ["ok"]      = ok ? "true" : "false",
+            ["version"] = ok ? version : "(no-response)",
+            ["trigger"] = trigger,
+        });
+        if (!ok)
+            return new YtDlpRepairResult(false, false, "已換上新元件，但 yt-dlp 仍無法啟動。請參考「詳細說明」的其他步驟。");
+
+        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            HealthVm.CanRepair = false;
+            HealthVm.RepairStatus = "";
+            HealthVm.IsVisible = false;
+        });
+        return new YtDlpRepairResult(true, false, version);
     }
 
     public async Task StartBackgroundUpdateCheckAsync(CancellationToken ct)
@@ -551,3 +717,9 @@ public sealed class AppHost : IDisposable
         Logger.Dispose();
     }
 }
+
+/// <summary>Outcome of <see cref="AppHost.RepairYtDlpAsync"/> and <see cref="AppHost.ActivateYtDlpPackageAsync"/>.</summary>
+/// <param name="IsFixed">yt-dlp answered --version after the swap.</param>
+/// <param name="NeedsRestart">The new package is on disk but only takes effect on the next launch.</param>
+/// <param name="Message">The yt-dlp version when fixed; otherwise a user-facing reason.</param>
+public sealed record YtDlpRepairResult(bool IsFixed, bool NeedsRestart, string Message);

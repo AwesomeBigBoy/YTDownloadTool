@@ -17,6 +17,22 @@ public partial class HealthBannerViewModel : ObservableObject
     [ObservableProperty] private bool _isVisible;
     [ObservableProperty] private string _headline = "";
 
+    // v1.5.0: one-click 修復 (AppHost.RepairYtDlpAsync).
+    [ObservableProperty] private bool _canRepair;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowRepairStatus))]
+    private bool _isRepairing;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowRepairStatus))]
+    private string _repairStatus = "";
+
+    [ObservableProperty] private double _repairPercent;
+
+    /// <summary>Status line under the headline: while repairing, or to show its outcome.</summary>
+    public bool ShowRepairStatus => IsRepairing || !string.IsNullOrEmpty(RepairStatus);
+
     /// <summary>Long-form remediation text shown by the "詳細說明" button.</summary>
     public string Details { get; set; } = "";
 }

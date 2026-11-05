@@ -7,14 +7,13 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
-using YtDlpTool.Services;
+using YtDlpTool.Dialogs;
 
 namespace YtDlpTool;
 
 public partial class App : Application
 {
     public AppHost? Host { get; private set; }
-    public ThemeService ThemeService { get; private set; } = null!;
 
     // Early-startup crash log path. Populated BEFORE AppHost is constructed so even if
     // AppHost ctor blows up (white UI on one machine, theme/host wiring issues, etc.)
@@ -51,13 +50,6 @@ public partial class App : Application
             WriteEarlyDiag("startup.apphost.created", null);
 
             ApplyRenderMode(Host);
-
-            ThemeService = new ThemeService(this);
-            ThemeService.Apply(Host.Config.Theme);
-            WriteEarlyDiag("startup.theme.applied", new Dictionary<string,string>
-            {
-                ["theme"] = Host.Config.Theme.ToString()
-            });
         }
         catch (Exception ex)
         {
@@ -67,6 +59,8 @@ public partial class App : Application
                 ["msg"]   = ex.Message,
                 ["stack"] = ex.ToString()
             });
+            // Native on purpose (not AppDialog): this must work even when the theme
+            // resources themselves are what failed to load.
             MessageBox.Show(
                 "程式啟動失敗：" + ex.Message +
                 "\n\n崩潰報告已存至：\n" + _earlyDiagPath +
@@ -228,7 +222,7 @@ public partial class App : Application
                   "請只在你完全信任當前網路時啟用（例如自己的家用網路）。" +
                   "連到公共 wifi（咖啡廳、機場、飯店等）會有遭中間人攔截的風險。";
 
-        var result = MessageBox.Show(msg,
+        var result = AppDialog.Show(msg,
             "下載失敗：HTTPS 驗證問題",
             MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (result != MessageBoxResult.Yes) return false;
@@ -261,7 +255,7 @@ public partial class App : Application
                   "如果你之後遇到下載失敗，可以再回到這個設定打開。" +
                   "\n\n" +
                   "確定要關閉嗎？確認後程式會自動重新啟動讓設定生效。";
-        var result = MessageBox.Show(msg,
+        var result = AppDialog.Show(msg,
             "確認關閉降級驗證",
             MessageBoxButton.OKCancel, MessageBoxImage.Question);
         return result == MessageBoxResult.OK;
@@ -284,7 +278,7 @@ public partial class App : Application
                   "連到公共 wifi（咖啡廳、機場、飯店等）會有遭中間人攔截或竄改你下載內容的風險。" +
                   "\n\n" +
                   "確定要啟用嗎？確認後程式會自動重新啟動讓設定生效。";
-        var result = MessageBox.Show(msg,
+        var result = AppDialog.Show(msg,
             "確認啟用降級驗證",
             MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         return result == MessageBoxResult.OK;
@@ -369,6 +363,7 @@ public partial class App : Application
             ["msg"]  = e.Exception.Message
         });
         Host?.Logger.Flush();
+        // Native on purpose (not AppDialog): the failure may be in the UI layer itself.
         MessageBox.Show(
             "程式遇到了未預期的問題：" + e.Exception.Message +
             "\n\n詳細錯誤記錄已存至：\n" + _earlyDiagPath,

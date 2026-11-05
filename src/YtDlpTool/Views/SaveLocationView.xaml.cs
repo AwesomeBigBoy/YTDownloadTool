@@ -21,14 +21,35 @@ public partial class SaveLocationView : UserControl
         if (e.NewValue is MainViewModel newVm)
         {
             newVm.PropertyChanged += OnVmChanged;
-            PathLabel.Text = newVm.SaveDirectory;
+            ShowPath(newVm.SaveDirectory);
         }
     }
 
     private void OnVmChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainViewModel.SaveDirectory) && Vm is not null)
-            PathLabel.Text = Vm.SaveDirectory;
+            ShowPath(Vm.SaveDirectory);
+    }
+
+    // v1.5.0: 「桌面\YtVideo」 reads better than C:\Users\<name>\Desktop\YtVideo; the
+    // tooltip keeps the full path.
+    private void ShowPath(string path)
+    {
+        PathLabel.Text = FriendlyPath(path);
+        PathLabel.ToolTip = path;
+    }
+
+    internal static string FriendlyPath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return "";
+        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        if (!string.IsNullOrEmpty(desktop) &&
+            path.StartsWith(desktop, StringComparison.OrdinalIgnoreCase) &&
+            (path.Length == desktop.Length || path[desktop.Length] == Path.DirectorySeparatorChar))
+        {
+            return "桌面" + path[desktop.Length..];
+        }
+        return path;
     }
 
     private void OnBrowseClicked(object sender, RoutedEventArgs e)

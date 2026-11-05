@@ -4,11 +4,22 @@ namespace YtDlpTool.Domain.Services;
 
 public sealed class UrlValidator
 {
+    // v1.5.0: m. (links shared from phones) and music. serve the same videos.
     private static readonly HashSet<string> AllowedHosts =
-        new(StringComparer.OrdinalIgnoreCase) { "www.youtube.com", "youtube.com", "youtu.be" };
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "www.youtube.com", "youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be",
+        };
 
     private static readonly Regex VideoIdPattern =
         new(@"^[A-Za-z0-9_-]{11}$", RegexOptions.Compiled);
+
+    // PL…, UU…, RD…, OLAK5uy_…: letters, digits, - and _.
+    private static readonly Regex ListIdPattern =
+        new(@"^[A-Za-z0-9_-]{2,64}$", RegexOptions.Compiled);
+
+    // v1.5.0: /shorts/ID, /live/ID, /embed/ID are the same video as /watch?v=ID.
+    private static readonly string[] VideoIdPaths = { "/shorts/", "/live/", "/embed/" };
 
     public UrlValidationResult Validate(string? input)
     {
@@ -37,22 +48,48 @@ public sealed class UrlValidator
             return UrlValidationResult.Fail("不接受 IP 位址");
 
         string? videoId;
-        long? startSeconds = null;
+        var startSeconds = ParseTimeQuery(uri.Query, "t");
+        var listId = GetSingleQueryValue(uri.Query, "list");
+        if (listId is not null && !ListIdPattern.IsMatch(listId)) listId = null;
 
         if (string.Equals(host, "youtu.be", StringComparison.OrdinalIgnoreCase))
         {
             videoId = uri.AbsolutePath.TrimStart('/');
-            startSeconds = ParseTimeQuery(uri.Query, "t");
         }
         else
         {
-            if (!string.Equals(uri.AbsolutePath, "/watch", StringComparison.OrdinalIgnoreCase))
+            var path = uri.AbsolutePath;
+            if (string.Equals(path, "/watch", StringComparison.OrdinalIgnoreCase))
+            {
+                var v = GetSingleQueryValue(uri.Query, "v");
+                // watch?list=… with no v= is the list itself (YouTube opens its first video).
+                if (v is null)
+                    return listId is null
+                        ? UrlValidationResult.Fail("找不到影片 ID")
+                        : UrlValidationResult.OkPlaylist(listId);
+                videoId = v;
+            }
+            else if (string.Equals(path, "/playlist", StringComparison.OrdinalIgnoreCase) ||
+                     // The embedded playlist player. Checked before /embed/ID: "videoseries"
+                     // is eleven letters and would pass as a video id.
+                     string.Equals(path.TrimEnd('/'), "/embed/videoseries", StringComparison.OrdinalIgnoreCase))
+            {
+                return listId is null
+                    ? UrlValidationResult.Fail("找不到播放清單 ID")
+                    : UrlValidationResult.OkPlaylist(listId);
+            }
+            else if (VideoIdPaths.FirstOrDefault(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase)) is { } prefix)
+            {
+                videoId = path[prefix.Length..].TrimEnd('/');
+                // A channel's live embed (/embed/live_stream?channel=…): eleven letters as
+                // well, and not a video.
+                if (string.Equals(videoId, "live_stream", StringComparison.OrdinalIgnoreCase))
+                    return UrlValidationResult.Fail("不支援這個路徑");
+            }
+            else
+            {
                 return UrlValidationResult.Fail("不支援這個路徑");
-
-            var v = GetSingleQueryValue(uri.Query, "v");
-            if (v is null) return UrlValidationResult.Fail("找不到影片 ID");
-            videoId = v;
-            startSeconds = ParseTimeQuery(uri.Query, "t");
+            }
         }
 
         if (videoId is null || !VideoIdPattern.IsMatch(videoId))
@@ -60,7 +97,7 @@ public sealed class UrlValidator
 
         var canonical = $"https://www.youtube.com/watch?v={videoId}";
         if (startSeconds is not null) canonical += $"&t={startSeconds}";
-        return UrlValidationResult.Ok(canonical);
+        return UrlValidationResult.Ok(canonical) with { VideoId = videoId, PlaylistId = listId };
     }
 
     private static bool IsIpLiteral(string host) =>

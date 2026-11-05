@@ -22,6 +22,14 @@ public sealed class AppConfig
     public DateTimeOffset? LastAppCheck { get; set; }
     public string LogLevel { get; set; } = "Info";
 
+    // v1.5.0: the 格式 and 畫質 / 音質 of the last download, preselected for the next video
+    // and offered as the default for playlists and batches. Quality is stored the way the
+    // queue tag shows it ("1080p", "M4A", "MP3"; "best" from the batch dialog) and
+    // resolved per video by QualityOptions.PreferredIndex. Null until the first download.
+    public DownloadMode? LastMode { get; set; }
+    public string? LastVideoQuality { get; set; }
+    public string? LastAudioQuality { get; set; }
+
     // White-UI workaround for the rare machine where WPF hardware rendering produces
     // a blank/white visual tree (older Intel iGPU drivers, RDP sessions, certain AD
     // GPO configs). When true, App.OnStartup sets RenderOptions.ProcessRenderMode to

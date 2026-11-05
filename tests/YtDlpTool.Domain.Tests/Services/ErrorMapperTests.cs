@@ -23,6 +23,17 @@ public class ErrorMapperTests
     }
 
     [Fact]
+    public void Map_DamagedComponent_PointsAtRepair()
+    {
+        // ProcessSandbox's wording for an executable that is not a Windows program.
+        var r = ErrorMapper.Map("Process.Start failed: 元件檔案已損毀（不是有效的 Windows 程式）— yt-dlp.exe");
+
+        Assert.Equal(ErrorCategory.ComponentMissing, r.Category);
+        Assert.Equal("E-COMP002", r.ErrorCode);
+        Assert.Contains("修復", r.UserMessage);
+    }
+
+    [Fact]
     public void Map_EmptyReturnsUnknown()
     {
         var r = ErrorMapper.Map("");

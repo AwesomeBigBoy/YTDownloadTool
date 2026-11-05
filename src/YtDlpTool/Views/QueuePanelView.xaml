@@ -2,82 +2,166 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:YtDlpTool.ViewModels">
-    <Border Style="{StaticResource GlassCard}" Padding="16,12">
-        <StackPanel>
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" VerticalAlignment="Center">
-                    <Run Text="{StaticResource Queue.Title}" />
-                    <Run x:Name="CountRun" Text=" (0)"
-                         Foreground="{DynamicResource Brush.TextTertiary}" />
-                </TextBlock>
-                <Button Grid.Column="1"
-                        Content="清空已完成"
-                        Style="{StaticResource LinkButton}"
-                        Command="{Binding RemoveCompletedCommand}"
-                        VerticalAlignment="Center" />
-            </Grid>
-            <ListBox x:Name="QueueItems" Margin="0,12,0,0"
-                     ItemsSource="{Binding Queue}"
-                     SelectedItem="{Binding SelectedQueueItem, Mode=TwoWay}"
-                     BorderThickness="0" Background="Transparent"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                <ListBox.ItemContainerStyle>
-                    <Style TargetType="ListBoxItem">
-                        <Setter Property="Padding" Value="0" />
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                        <Setter Property="Background" Value="Transparent" />
-                        <Setter Property="BorderThickness" Value="0" />
+    <!-- v1.5.0: the list owns its row of the window and its own ScrollViewer. Inside the
+         old outer ScrollViewer it was measured with infinite height, which silently
+         disabled virtualization and laid out every row. -->
+    <UserControl.Resources>
+        <!-- v1.5.0: each row's actions in a menu too (right-click, the Menu key or Shift+F10
+             on the selected row), so a keyboard can reach them for any row: Tab only visits
+             the selected row's buttons (the list pattern; ↑↓ move between rows). -->
+        <ContextMenu x:Key="QueueRowMenu"
+                     DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+            <MenuItem Header="重試"
+                      Command="{Binding PlacementTarget.Tag.RetryJobCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding Id}"
+                      Visibility="{Binding IsFailed, Converter={StaticResource BoolToVisibilityConverter}}" />
+            <MenuItem Header="在資料夾中顯示"
+                      Command="{Binding PlacementTarget.Tag.OpenItemFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding Id}"
+                      Visibility="{Binding IsCompleted, Converter={StaticResource BoolToVisibilityConverter}}" />
+            <MenuItem Command="{Binding PlacementTarget.Tag.CancelJobCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding Id}" InputGestureText="Delete">
+                <MenuItem.Style>
+                    <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+                        <Setter Property="Header" Value="移除" />
                         <Style.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="#26FF6B6B" />
-                            </Trigger>
+                            <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                <Setter Property="Header" Value="取消下載" />
+                            </DataTrigger>
                         </Style.Triggers>
                     </Style>
-                </ListBox.ItemContainerStyle>
-                <ListBox.ItemTemplate>
-                    <DataTemplate DataType="{x:Type vm:QueueItemViewModel}">
-                        <Border Margin="0,0,0,8"
-                                BorderBrush="{DynamicResource Brush.GlassBorder}"
-                                BorderThickness="0,0,0,1"
-                                Padding="0,8">
-                            <Grid>
+                </MenuItem.Style>
+            </MenuItem>
+        </ContextMenu>
+
+        <Style x:Key="ListBoxItem.QueueRow" TargetType="ListBoxItem" BasedOn="{StaticResource ListBoxItem.Queue}">
+            <!-- Without these, screen readers read a row as its type name. -->
+            <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
+            <Setter Property="AutomationProperties.ItemStatus" Value="{Binding StatusText}" />
+            <Setter Property="Tag" Value="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ListBox}}" />
+            <Setter Property="ContextMenu" Value="{StaticResource QueueRowMenu}" />
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="2,20,0,10">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="{StaticResource Queue.Title}" Style="{StaticResource Text.Title}" FontSize="14" />
+                <Border Background="{StaticResource Brush.SurfaceAlt}" CornerRadius="9" Padding="7,1"
+                        Margin="8,0,0,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="CountText" Text="0" FontSize="11" Foreground="{StaticResource Brush.TextSecondary}" />
+                </Border>
+            </StackPanel>
+            <Button x:Name="ClearDoneButton" Content="清除已完成" Style="{StaticResource Button.Link}"
+                    HorizontalAlignment="Right" Visibility="Collapsed"
+                    Command="{Binding RemoveCompletedCommand}" />
+        </Grid>
+
+        <ListBox x:Name="QueueItems" Grid.Row="1"
+                 ItemsSource="{Binding Queue}"
+                 SelectedItem="{Binding SelectedQueueItem, Mode=TwoWay}"
+                 ItemContainerStyle="{StaticResource ListBoxItem.QueueRow}"
+                 PreviewKeyDown="OnQueueKeyDown"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 VirtualizingPanel.VirtualizationMode="Recycling"
+                 VirtualizingPanel.ScrollUnit="Pixel"
+                 AutomationProperties.Name="{StaticResource Queue.Title}">
+            <ListBox.ItemTemplate>
+                <DataTemplate DataType="{x:Type vm:QueueItemViewModel}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <Grid Width="112" Height="63" VerticalAlignment="Center">
+                            <Border CornerRadius="6" Background="{StaticResource Brush.SurfaceAlt}" />
+                            <Border CornerRadius="6" RenderOptions.BitmapScalingMode="HighQuality">
+                                <Border.Background>
+                                    <ImageBrush ImageSource="{Binding ThumbnailImage}" Stretch="UniformToFill" />
+                                </Border.Background>
+                            </Border>
+                        </Grid>
+
+                        <StackPanel Grid.Column="1" Margin="14,0,12,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding Title}" />
+                            <Grid Margin="0,5,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="3" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <Rectangle Grid.Column="0" Fill="{Binding Status, Converter={StaticResource StatusToColorConverter}}"
-                                           Width="3" />
-                                <Image Grid.Column="1" Width="64" Height="36" Margin="8,0"
-                                       Stretch="UniformToFill"
-                                       Source="{Binding ThumbnailImage}" />
-                                <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"
-                                               Foreground="{DynamicResource Brush.TextPrimary}" />
-                                    <ProgressBar Margin="0,4,0,0" Height="4"
-                                                 Value="{Binding ProgressPercent}" />
-                                    <TextBlock FontSize="11" Margin="0,4,0,0"
-                                               Foreground="{DynamicResource Brush.TextSecondary}"
-                                               FontFamily="{StaticResource Font.Numeric}"
-                                               Text="{Binding DisplayMeta}" />
-                                </StackPanel>
-                                <Button Grid.Column="3"
-                                        Style="{StaticResource DangerIconButton}"
-                                        Content="✕"
-                                        Margin="8,0,0,0"
-                                        ToolTip="移除"
-                                        Command="{Binding DataContext.CancelJobCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                        CommandParameter="{Binding Id}" />
+                                <TextBlock x:Name="StatusGlyph" Style="{StaticResource Text.Icon}" FontSize="12"
+                                           VerticalAlignment="Top" Margin="0,2,6,0" Visibility="Collapsed" />
+                                <TextBlock x:Name="StatusLine" Grid.Column="1" Text="{Binding StatusText}" FontSize="12"
+                                           Foreground="{StaticResource Brush.TextSecondary}"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="2" Text="{Binding TagText}" FontSize="12" Margin="12,0,0,0"
+                                           Foreground="{StaticResource Brush.TextTertiary}" />
                             </Grid>
-                        </Border>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
+                            <ProgressBar Margin="0,8,0,0" Height="4" Maximum="100"
+                                         Value="{Binding ProgressPercent, Mode=OneWay}"
+                                         Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibilityConverter}}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Style="{StaticResource Button.Icon}" Content="&#xE72C;"
+                                    ToolTip="重試" AutomationProperties.Name="重試"
+                                    Visibility="{Binding IsFailed, Converter={StaticResource BoolToVisibilityConverter}}"
+                                    Command="{Binding DataContext.RetryJobCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                    CommandParameter="{Binding Id}" />
+                            <Button Style="{StaticResource Button.Icon}" Content="&#xE838;"
+                                    ToolTip="在資料夾中顯示" AutomationProperties.Name="在資料夾中顯示"
+                                    Visibility="{Binding IsCompleted, Converter={StaticResource BoolToVisibilityConverter}}"
+                                    Command="{Binding DataContext.OpenItemFolderCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                    CommandParameter="{Binding Id}" />
+                            <Button x:Name="RemoveButton" Style="{StaticResource Button.Icon}" Content="&#xE711;" FontSize="11"
+                                    Margin="2,0,0,0" ToolTip="移除" AutomationProperties.Name="移除"
+                                    Command="{Binding DataContext.CancelJobCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                    CommandParameter="{Binding Id}" />
+                        </StackPanel>
+                    </Grid>
+                    <DataTemplate.Triggers>
+                        <DataTrigger Binding="{Binding IsActive}" Value="True">
+                            <Setter TargetName="RemoveButton" Property="ToolTip" Value="取消下載" />
+                            <Setter TargetName="RemoveButton" Property="AutomationProperties.Name" Value="取消下載" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsCompleted}" Value="True">
+                            <Setter TargetName="StatusGlyph" Property="Text" Value="&#xE73E;" />
+                            <Setter TargetName="StatusGlyph" Property="Foreground" Value="{StaticResource Brush.Success}" />
+                            <Setter TargetName="StatusGlyph" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="StatusLine" Property="Foreground" Value="{StaticResource Brush.Success}" />
+                        </DataTrigger>
+                        <!-- Failure reasons can be long remediation text: let them wrap (3 lines). -->
+                        <DataTrigger Binding="{Binding IsFailed}" Value="True">
+                            <Setter TargetName="StatusGlyph" Property="Text" Value="&#xE7BA;" />
+                            <Setter TargetName="StatusGlyph" Property="Foreground" Value="{StaticResource Brush.Danger}" />
+                            <Setter TargetName="StatusGlyph" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="StatusLine" Property="Foreground" Value="{StaticResource Brush.Danger}" />
+                            <Setter TargetName="StatusLine" Property="TextWrapping" Value="Wrap" />
+                            <Setter TargetName="StatusLine" Property="MaxHeight" Value="54" />
+                            <Setter TargetName="StatusLine" Property="ToolTip" Value="{Binding StatusText}" />
+                        </DataTrigger>
+                    </DataTemplate.Triggers>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <StackPanel x:Name="EmptyState" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    IsHitTestVisible="False">
+            <TextBlock Text="&#xE896;" Style="{StaticResource Text.Icon}" FontSize="28"
+                       Foreground="{StaticResource Brush.TextTertiary}" HorizontalAlignment="Center" />
+            <TextBlock Text="還沒有下載項目" HorizontalAlignment="Center" Margin="0,12,0,0"
+                       Foreground="{StaticResource Brush.TextSecondary}" />
+            <TextBlock Text="貼上 YouTube 網址，選好格式後按「下載」" Style="{StaticResource Text.Label}"
+                       HorizontalAlignment="Center" Margin="0,4,0,0" />
         </StackPanel>
-    </Border>
+    </Grid>
 </UserControl>

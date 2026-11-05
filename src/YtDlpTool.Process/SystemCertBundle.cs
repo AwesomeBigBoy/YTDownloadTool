@@ -87,11 +87,11 @@ public static class SystemCertBundle
 
     /// <summary>
     /// Writes a minimal OpenSSL config that lowers SECLEVEL to 0 (used as
-    /// OPENSSL_CONF). Best-effort defence-in-depth: Python builds with
-    /// OPENSSL_INIT_NO_LOAD_CONFIG ignore this, but some alternate OpenSSL
-    /// builds (or our patched yt-dlp.exe) may honour it. The actual
-    /// handshake-time SECLEVEL relaxation comes from the PyInstaller
-    /// runtime hook inside our patched yt-dlp.exe.
+    /// OPENSSL_CONF). Best-effort defence-in-depth only: yt-dlp pins
+    /// '@SECLEVEL=2' on every context it creates, which overrides this. The
+    /// relaxation that actually takes effect is --no-check-certificates plus the
+    /// yt-dlp plugin installed by YtDlpTlsPlugin (v1.5.0; until v1.4.0 it was a
+    /// runtime hook compiled into a patched yt-dlp.exe).
     /// </summary>
     public static bool WritePermissiveOpensslConf(string outputPath)
     {

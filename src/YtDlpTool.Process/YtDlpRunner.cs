@@ -12,8 +12,9 @@ public sealed class YtDlpRunner
     private readonly string? _opensslConfPath;
     private readonly AppLogger? _logger;
     private readonly string? _ffmpegPath;
+    private readonly string? _tlsPluginDirectory;
 
-    public YtDlpRunner(string executable, bool allowUntrustedCerts = false, string? caBundlePath = null, string? opensslConfPath = null, AppLogger? logger = null, string? ffmpegPath = null)
+    public YtDlpRunner(string executable, bool allowUntrustedCerts = false, string? caBundlePath = null, string? opensslConfPath = null, AppLogger? logger = null, string? ffmpegPath = null, string? tlsPluginDirectory = null)
     {
         _executable = executable;
         _ffmpegPath = ffmpegPath;
@@ -21,6 +22,38 @@ public sealed class YtDlpRunner
         _caBundlePath = caBundlePath;
         _opensslConfPath = opensslConfPath;
         _logger = logger;
+        _tlsPluginDirectory = tlsPluginDirectory;
+    }
+
+    /// <summary>
+    /// v1.5.0: everything AllowUntrustedCertificates adds to a yt-dlp command line, shared
+    /// by ALL three invocations (metadata, download, subtitles).
+    ///
+    ///   --no-check-certificates  verify_mode=CERT_NONE. Measured against a local server
+    ///                            presenting a legacy-key-size RSA leaf: without it the official
+    ///                            build fails with "EE certificate key too weak" (E-SSL02);
+    ///                            with it the handshake succeeds.
+    ///   --plugin-dirs DIR        loads YtDlpTlsPlugin, which also lowers SECLEVEL and
+    ///                            disables verification on SSLContexts that the CLI flag
+    ///                            does not reach. It used to be compiled into our patched
+    ///                            yt-dlp.exe; see YtDlpTlsPlugin for why it no longer is.
+    ///
+    /// Up to v1.4.0 the download path never passed --no-check-certificates; it only worked
+    /// behind inspecting proxies because the patched exe disabled verification itself.
+    ///
+    /// --plugin-dirs is emitted only for a directory that exists: yt-dlp exits with
+    /// "Invalid plugin directory" otherwise, which would turn a failed plugin write into
+    /// a dead app.
+    /// </summary>
+    private IEnumerable<string> BuildTlsRelaxArgs()
+    {
+        if (!_allowUntrustedCerts) yield break;
+        yield return "--no-check-certificates";
+        if (!string.IsNullOrEmpty(_tlsPluginDirectory) && Directory.Exists(_tlsPluginDirectory))
+        {
+            yield return "--plugin-dirs";
+            yield return _tlsPluginDirectory;
+        }
     }
 
     /// <summary>
@@ -79,8 +112,16 @@ public sealed class YtDlpRunner
     //                        treat it as a stall and retry. On managed networks
     //                        with intermittent throttling this keeps the
     //                        download moving instead of waiting forever.
+    //   --ignore-config      v1.5.0: and the other half of that failure mode — a
+    //   --no-plugin-dirs     config.txt / yt-dlp.conf or plugin someone left for their
+    //                        own CLI use is otherwise applied to every app call (the dev
+    //                        machine has one). Everything the app needs is passed here;
+    //                        BuildTlsRelaxArgs re-adds our own plugin folder AFTER the
+    //                        clear, which is the order --no-plugin-dirs requires.
     private static IEnumerable<string> BuildCommonCliArgs()
     {
+        yield return "--ignore-config";
+        yield return "--no-plugin-dirs";
         yield return "--force-ipv4";
         yield return "--concurrent-fragments"; yield return "8";
         yield return "--continue";
@@ -151,13 +192,10 @@ public sealed class YtDlpRunner
         {
             env["OPENSSL_CONF"] = _opensslConfPath!;
         }
-        // v1.3.0: activate the runtime hook baked into our patched yt-dlp.exe.
-        // The hook checks for YTDLP_RELAX_SECLEVEL=1 at Python startup and
-        // monkey-patches ssl.SSLContext.__init__ to call
-        // set_ciphers('DEFAULT@SECLEVEL=0'), which allows TLS handshakes to
-        // complete with leaf certificates whose key sizes the default would
-        // reject. Cert-chain + hostname validation still run normally.
-        // See build/yt-dlp-patch/ for the patch source + audit trail.
+        // v1.3.0, v1.5.0: the opt-in gate for the TLS plugin (YtDlpTlsPlugin). The
+        // plugin is loaded via --plugin-dirs only when this setting is on, and on top
+        // of that does nothing unless this variable is set — so a copy of the plugin
+        // that yt-dlp somehow found on its own stays inert.
         if (_allowUntrustedCerts)
         {
             env["YTDLP_RELAX_SECLEVEL"] = "1";
@@ -201,14 +239,10 @@ public sealed class YtDlpRunner
                 "--no-warnings",
             };
             fetchArgs.AddRange(BuildCommonCliArgs());
-            // v1.2.5: re-added --no-check-certificates after v1.2.4 (Option B, OPENSSL_CONF
-            // SECLEVEL=0 only) failed in testing. Root cause: Python ssl module is
-            // built with OPENSSL_INIT_NO_LOAD_CONFIG since 3.8, so OPENSSL_CONF env var
-            // is ignored. SECLEVEL stays at 1, weak-key certs rejected at handshake.
-            // OPENSSL_CONF is still set by BuildExtraEnv as a best-effort no-op (some
-            // OpenSSL builds do load it; harmless on the ones that don't). The actual
-            // bypass is --no-check-certificates here.
-            if (_allowUntrustedCerts) fetchArgs.Add("--no-check-certificates");
+            // v1.2.5: --no-check-certificates after v1.2.4's OPENSSL_CONF-only attempt
+            // failed (OPENSSL_CONF is still set by BuildExtraEnv as a best-effort no-op).
+            // v1.5.0: now comes from BuildTlsRelaxArgs together with the TLS plugin.
+            fetchArgs.AddRange(BuildTlsRelaxArgs());
             AddSystemProxyArgs(fetchArgs);
             fetchArgs.Add("--");
             fetchArgs.Add(url);
@@ -263,6 +297,98 @@ public sealed class YtDlpRunner
         }
     }
 
+    /// <summary>The most videos one playlist offers; yt-dlp stops paging after this many.</summary>
+    public const int MaxPlaylistEntries = 500;
+
+    // Placeholders YouTube keeps in a playlist for videos nobody can watch any more.
+    private static readonly HashSet<string> UnavailableTitles =
+        new(StringComparer.OrdinalIgnoreCase) { "[Private video]", "[Deleted video]", "[Unavailable video]" };
+
+    private static readonly HashSet<string> UnavailableStates =
+        new(StringComparer.OrdinalIgnoreCase) { "private", "needs_auth", "subscriber_only", "premium_only" };
+
+    /// <summary>
+    /// v1.5.0: the videos of a playlist without parsing each one: --flat-playlist reads
+    /// the playlist page itself (about one request per 100 videos). Each video is parsed
+    /// for real only when it is queued, so its formats are chosen exactly like a pasted link's.
+    /// </summary>
+    public async Task<PlaylistFetchResult> FetchPlaylistAsync(string url, CancellationToken cancellationToken = default)
+    {
+        var argList = new List<string>
+        {
+            "--flat-playlist",
+            "--dump-single-json",
+            "--yes-playlist",
+            "--playlist-items", $"1:{MaxPlaylistEntries}",
+            "--no-warnings",
+        };
+        argList.AddRange(BuildCommonCliArgs());
+        argList.AddRange(BuildTlsRelaxArgs());
+        AddSystemProxyArgs(argList);
+        argList.Add("--");
+        argList.Add(url);
+
+        var extraEnv = BuildExtraEnv();
+        var timeout = Budget(TimeSpan.FromSeconds(90));
+        var args = new ProcessStartArguments(
+            ExecutablePath: _executable,
+            Arguments: argList,
+            Timeout: timeout,
+            ExtraEnv: extraEnv);
+
+        LogInvokeBegin("playlist", argList, url, extraEnv);
+        var stdoutLines = new List<string>();
+        var exit = await ProcessSandbox.RunAsync(args,
+            onStdout: line => stdoutLines.Add(line.Text),
+            cancellationToken: cancellationToken);
+        LogInvokeEnd("playlist", exit);
+
+        if (exit.ExitCode != 0 || exit.TimedOut || exit.Cancelled)
+        {
+            var diag = BuildDiagnostics(exit);
+            // Same markers as FetchMetadataAsync, which ErrorMapper understands.
+            if (exit.TimedOut) diag = $"[timeout after {(int)timeout.TotalSeconds}s]\n" + diag;
+            else if (exit.Cancelled) diag = "[cancelled]\n" + diag;
+            return new PlaylistFetchResult(false, null, diag);
+        }
+
+        YtDlpPlaylistDto? dto;
+        try
+        {
+            dto = JsonSerializer.Deserialize(string.Join('\n', stdoutLines), YtDlpJsonContext.Default.YtDlpPlaylistDto);
+        }
+        catch (JsonException)
+        {
+            return new PlaylistFetchResult(false, null, "JSON parse failed");
+        }
+        // A Mix yt-dlp cannot expand comes back as the one video it was opened from.
+        if (dto?.Entries is null) return new PlaylistFetchResult(false, null, "not a playlist", NotAPlaylist: true);
+
+        var entries = dto.Entries
+            // JSON null gaps, and entries that are not videos (a channel, a tab).
+            .Where(e => e?.Id is { } id && VideoIdShape.IsMatch(id))
+            .Select(e => new PlaylistEntry(
+                VideoId: e!.Id!,
+                Title: e.Title ?? e.Id!,
+                Duration: e.Duration is > 0 and var s ? TimeSpan.FromSeconds(Math.Round(s)) : null,
+                State: StateOf(e)))
+            .ToList();
+        return new PlaylistFetchResult(true, new PlaylistInfo(dto.Id ?? "", dto.Title ?? "", entries), null);
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex VideoIdShape =
+        new(@"^[A-Za-z0-9_-]{11}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static PlaylistEntryState StateOf(YtDlpPlaylistEntryDto e) =>
+        e.LiveStatus switch
+        {
+            "is_live" => PlaylistEntryState.Live,
+            "is_upcoming" => PlaylistEntryState.Upcoming,
+            _ when UnavailableTitles.Contains(e.Title ?? "") || UnavailableStates.Contains(e.Availability ?? "")
+                => PlaylistEntryState.Unavailable,
+            _ => PlaylistEntryState.Available,
+        };
+
     private static string? TryCopyThumbnailToCache(string sourceDir, string videoId)
     {
         try
@@ -306,7 +432,9 @@ public sealed class YtDlpRunner
                 AudioCodec: f.Acodec is null or "none" ? null : f.Acodec,
                 Extension: f.Ext ?? "",
                 FileSizeBytes: f.Filesize ?? f.FilesizeApprox,
-                AudioBitrateKbps: f.Abr.HasValue ? (int)Math.Round(f.Abr.Value) : null))
+                AudioBitrateKbps: f.Abr.HasValue ? (int)Math.Round(f.Abr.Value) : null,
+                Width: f.Width,
+                DynamicRange: f.DynamicRange))
             .ToList();
 
         var subtitles = new List<SubtitleTrack>();
@@ -389,6 +517,9 @@ public sealed class YtDlpRunner
         // URL (heavier, JS-obfuscated, easily rate-limited). Subs land via a
         // separate yt-dlp --skip-download call and are muxed locally by ffmpeg.
         argList.AddRange(BuildFfmpegLocationArgs());
+        // v1.5.0: this path was missing --no-check-certificates entirely (see
+        // BuildTlsRelaxArgs).
+        argList.AddRange(BuildTlsRelaxArgs());
         AddSystemProxyArgs(argList);
         if (request.EmbedThumbnail) argList.Add("--embed-thumbnail");
         if (request.ForceOverwrite) argList.Add("--force-overwrites");
@@ -402,15 +533,63 @@ public sealed class YtDlpRunner
             ExtraEnv: extraEnv);
 
         LogInvokeBegin("download", argList, request.Url, extraEnv);
-        string? finalPath = null;
-        var exit = await ProcessSandbox.RunAsync(args,
-            onStdout: line => ParseProgress(line.Text, progress, ref finalPath),
-            cancellationToken: cancellationToken);
+        var (exit, finalPath, sawData) = await RunDownloadOnceAsync(args, progress, cancellationToken);
         LogInvokeEnd("download", exit);
+
+        // v1.5.0: one automatic retry for a 403 that arrives after data was already
+        // flowing. YouTube occasionally revokes a stream part-way through: field run
+        // 2026-11-04, 1080p, "HTTP Error 403: Forbidden" at 7.8% after 20 MB at 9 MiB/s,
+        // while the same download succeeded on six other attempts. yt-dlp does not retry
+        // that 403 itself. A second run re-extracts fresh URLs and --continue resumes the
+        // partial file — as long as the request has no ForceOverwrite: --force-overwrites
+        // implies --no-continue, and until v1.5.0 the executor always set it, so this retry
+        // (and every --throttled-rate re-extract) started again from byte 0. A 403 before
+        // any data is a real refusal (age or region limits, a removed video) and is
+        // reported as before.
+        if (!exit.Cancelled && exit.ExitCode != 0 && sawData && IsForbidden(exit))
+        {
+            _logger?.Info("ytdlp.download.retry", new Dictionary<string, string>
+            {
+                ["reason"]   = "forbidden_mid_stream",
+                ["url_hash"] = AppLogger.HashSuffix(request.Url),
+            });
+            LogInvokeBegin("download", argList, request.Url, extraEnv);
+            (exit, finalPath, _) = await RunDownloadOnceAsync(args, progress, cancellationToken);
+            LogInvokeEnd("download", exit);
+        }
 
         if (exit.Cancelled) return new DownloadResult(false, null, BuildDiagnostics(exit), true);
         if (exit.ExitCode != 0) return new DownloadResult(false, null, BuildDiagnostics(exit), false);
         return new DownloadResult(true, finalPath, null, false);
+    }
+
+    private static async Task<(ProcessExitInfo Exit, string? FinalPath, bool SawData)> RunDownloadOnceAsync(
+        ProcessStartArguments args, IProgress<ProgressReport>? progress, CancellationToken cancellationToken)
+    {
+        string? finalPath = null;
+        var tracking = new DataTrackingProgress(progress);
+        var exit = await ProcessSandbox.RunAsync(args,
+            onStdout: line => ParseProgress(line.Text, tracking, ref finalPath),
+            cancellationToken: cancellationToken);
+        return (exit, finalPath, tracking.SawData);
+    }
+
+    private static bool IsForbidden(ProcessExitInfo exit) =>
+        exit.Stderr?.Contains("HTTP Error 403", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>
+    /// Forwards every report and notes whether any data arrived. Synchronous on purpose:
+    /// the flag must be settled when the process exits, and Progress&lt;T&gt; would post it.
+    /// </summary>
+    private sealed class DataTrackingProgress(IProgress<ProgressReport>? inner) : IProgress<ProgressReport>
+    {
+        public bool SawData { get; private set; }
+
+        public void Report(ProgressReport value)
+        {
+            if (value.Percent > 0) SawData = true;
+            inner?.Report(value);
+        }
     }
 
     /// <summary>
@@ -443,6 +622,10 @@ public sealed class YtDlpRunner
     {
         return r.Mode switch
         {
+            // v1.5.0: an MP3 is encoded at the bitrate its file name says (QualityOptions.Mp3Kbps).
+            DownloadMode.AudioOnly when InferAudioFormat(r.ChosenFormat) == "mp3" =>
+                new[] { "-f", r.ChosenFormat.FormatId, "-x", "--audio-format", "mp3",
+                        "--audio-quality", $"{YtDlpTool.Domain.Services.QualityOptions.Mp3Kbps(r.ChosenFormat)}K" },
             DownloadMode.AudioOnly =>
                 new[] { "-f", r.ChosenFormat.FormatId, "-x", "--audio-format", InferAudioFormat(r.ChosenFormat) },
             DownloadMode.VideoOnly =>
@@ -509,8 +692,7 @@ public sealed class YtDlpRunner
         argList.AddRange(BuildCommonCliArgs());
         argList.AddRange(BuildFfmpegLocationArgs());
         AddSystemProxyArgs(argList);
-        // v1.2.5: re-added --no-check-certificates (see FetchMetadataAsync for rationale).
-        if (_allowUntrustedCerts) argList.Add("--no-check-certificates");
+        argList.AddRange(BuildTlsRelaxArgs());
         argList.Add("--");
         argList.Add(url);
 
@@ -600,12 +782,24 @@ public sealed class YtDlpRunner
         new(@"\{""percent""\s*:\s*""?(?<pct>[\d.]+)%?""?[^}]*""speed""\s*:\s*""(?<speed>[^""]+)""[^}]*""eta""\s*:\s*""(?<eta>[^""]+)""\}",
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    // v1.5.0: what yt-dlp prints once the bytes are in — its post-processors and their
+    // clean-up. The row then says 處理中 instead of the last download speed, frozen for the
+    // 20 s and more that merging and embedding the cover take on a managed PC.
+    private static readonly System.Text.RegularExpressions.Regex PostProcessorRegex = new(
+        @"^(\[(Merger|EmbedThumbnail|ExtractAudio|Fixup\w*|ThumbnailsConvertor|Metadata|VideoRemuxer|VideoConvertor|EmbedSubtitle|ModifyChapters|SponsorBlock|MoveFiles)\]|Deleting original file )",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private static void ParseProgress(string line, IProgress<ProgressReport>? progress, ref string? finalPath)
     {
         var destMatch = DestinationRegex.Match(line);
         if (destMatch.Success) finalPath = destMatch.Groups["path"].Value.Trim();
 
         if (progress is null) return;
+        if (PostProcessorRegex.IsMatch(line))
+        {
+            progress.Report(new ProgressReport(100, null, null, Processing: true));
+            return;
+        }
         var m = ProgressJsonRegex.Match(line);
         if (!m.Success) return;
         if (!double.TryParse(m.Groups["pct"].Value, System.Globalization.NumberStyles.Float,

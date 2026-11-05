@@ -22,9 +22,11 @@ public sealed class YtDlpFormatDto
     public string? Vcodec { get; set; }
     public string? Acodec { get; set; }
     public int? Height { get; set; }
+    public int? Width { get; set; }
     public long? Filesize { get; set; }
     [JsonPropertyName("filesize_approx")] public long? FilesizeApprox { get; set; }
     public double? Abr { get; set; }
+    [JsonPropertyName("dynamic_range")] public string? DynamicRange { get; set; }
 }
 
 public sealed class YtDlpSubtitleDto

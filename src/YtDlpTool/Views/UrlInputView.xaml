@@ -1,106 +1,72 @@
 <UserControl x:Class="YtDlpTool.Views.UrlInputView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Border Style="{StaticResource GlassCard}">
-        <StackPanel>
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+    <StackPanel>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Grid Grid.Column="0">
                 <TextBox x:Name="UrlTextBox"
-                         Grid.Column="0"
-                         FontSize="15"
-                         Background="Transparent"
-                         BorderThickness="0"
-                         Padding="0,6,8,6"
-                         VerticalContentAlignment="Center"
+                         Height="40" FontSize="14" Padding="36,0,36,0"
+                         AutomationProperties.Name="YouTube 網址"
                          TextChanged="OnTextChanged"
                          KeyDown="OnKeyDown" />
-                <TextBlock x:Name="Placeholder"
-                           Grid.Column="0"
-                           Text="{StaticResource Url.Placeholder}"
-                           IsHitTestVisible="False"
-                           Foreground="{DynamicResource Brush.TextTertiary}"
-                           Padding="0,6,8,6"
-                           VerticalAlignment="Center" />
-                <Button x:Name="PasteButton"
-                        Grid.Column="1"
-                        Style="{StaticResource LinkButton}"
-                        Content="{StaticResource Url.PasteButton}"
-                        Visibility="Collapsed"
-                        Click="OnPasteClicked" />
+                <TextBlock Text="&#xE71B;" Style="{StaticResource Text.Icon}"
+                           Foreground="{StaticResource Brush.TextTertiary}"
+                           HorizontalAlignment="Left" Margin="13,0,0,0" IsHitTestVisible="False" />
+                <TextBlock x:Name="Placeholder" Text="{StaticResource Url.Placeholder}"
+                           Foreground="{StaticResource Brush.TextTertiary}" FontSize="14"
+                           VerticalAlignment="Center" Margin="38,0,40,0"
+                           TextTrimming="CharacterEllipsis" IsHitTestVisible="False" />
+                <Button x:Name="ClearButton" Style="{StaticResource Button.Icon}"
+                        Content="&#xE711;" FontSize="10" Width="28" Height="28"
+                        HorizontalAlignment="Right" Margin="0,0,6,0"
+                        ToolTip="清除" AutomationProperties.Name="清除網址"
+                        Visibility="Collapsed" Click="OnClearClicked" />
             </Grid>
 
-            <ProgressBar x:Name="ParsingBar"
-                         Height="2" Margin="0,8,0,0"
-                         IsIndeterminate="True"
-                         Visibility="Collapsed" />
+            <Button x:Name="PasteButton" Grid.Column="1" Style="{StaticResource Button.Secondary}"
+                    Height="40" Margin="8,0,0,0"
+                    ToolTip="貼上剪貼簿中的網址（Ctrl+V）" AutomationProperties.Name="貼上"
+                    Click="OnPasteClicked">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE77F;" Style="{StaticResource Text.Icon}" Margin="0,0,6,0" />
+                    <TextBlock Text="{StaticResource Url.PasteButton}" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+        </Grid>
 
-            <!-- v1.3.6: TextWrapping is REQUIRED here. WPF defaults TextBlock to
-                 NoWrap, and ErrorMapper's diagnostic messages (E-TIMEOUT02 is ~250
-                 chars of remediation steps) then render as one long line that runs
-                 off the card and is clipped. Users saw only "解析網址逾時…" and
-                 reported it as a connection problem, while every actionable
-                 instruction sat off-screen. Do not remove. -->
-            <TextBlock x:Name="ErrorLabel"
-                       Margin="0,8,0,0"
-                       TextWrapping="Wrap"
-                       Foreground="{DynamicResource Brush.Danger}"
-                       Visibility="Collapsed" />
-
-            <!-- v1.3.7: shown while the once-per-launch yt-dlp cold start is still
-                 running, so a slow first extraction reads as "please wait" rather
-                 than a silent 30s stall ending in a timeout. Separate from FirstHint,
-                 which owns its own fade animation. -->
-            <TextBlock x:Name="WarmupHint"
-                       Margin="0,8,0,0"
-                       TextWrapping="Wrap"
-                       FontSize="12"
-                       Foreground="{DynamicResource Brush.TextTertiary}"
-                       Visibility="Collapsed" />
-
-            <TextBlock x:Name="FirstHint"
-                       Margin="0,12,0,0"
-                       Foreground="{DynamicResource Brush.TextTertiary}"
-                       FontSize="12"
-                       Visibility="Collapsed"
-                       Text="{StaticResource Hint.FirstParse}" />
-
-            <!-- Metadata card (shown after successful parse) -->
-            <Border x:Name="MetaCard"
-                    Margin="0,16,0,0"
-                    Visibility="Collapsed"
-                    Background="#33FFFFFF"
-                    BorderBrush="{DynamicResource Brush.GlassBorder}"
-                    BorderThickness="1"
-                    CornerRadius="10"
-                    Padding="10">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <Image x:Name="MetaThumb" Grid.Column="0" Width="96" Height="54" Stretch="UniformToFill" />
-                    <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                        <TextBlock x:Name="MetaTitle"
-                                   FontWeight="SemiBold" FontSize="14"
-                                   Foreground="{DynamicResource Brush.TextPrimary}"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Margin="0,4,0,0"
-                                   Foreground="{DynamicResource Brush.TextSecondary}">
-                            <Run x:Name="MetaChannel" />
-                            <Run Text=" · " />
-                            <Run x:Name="MetaDuration" FontFamily="{StaticResource Font.Numeric}" />
-                        </TextBlock>
-                    </StackPanel>
-                    <Button Grid.Column="2"
-                            Style="{StaticResource LinkButton}"
-                            Content="{StaticResource Url.ClearButton}"
-                            Click="OnClearClicked" />
-                </Grid>
-            </Border>
+        <!-- While a URL is being read. The bar's pulse only runs while IsIndeterminate is
+             true; code-behind clears it whenever the panel is hidden. -->
+        <StackPanel x:Name="ParsingPanel" Margin="2,12,0,0" Visibility="Collapsed">
+            <ProgressBar x:Name="ParsingBar" Height="3" IsIndeterminate="False" />
+            <TextBlock x:Name="ParsingCaption" Text="{StaticResource Url.Parsing}" Style="{StaticResource Text.Caption}" Margin="0,8,0,0" />
+            <!-- v1.3.7: shown while the once-per-launch yt-dlp cold start is still running,
+                 so a slow first extraction reads as "please wait" rather than a stall. -->
+            <TextBlock x:Name="WarmupHint" Style="{StaticResource Text.Caption}" Margin="0,4,0,0"
+                       TextWrapping="Wrap" Visibility="Collapsed" />
         </StackPanel>
-    </Border>
+
+        <!-- v1.3.6: TextWrapping is REQUIRED. ErrorMapper's messages (E-TIMEOUT02 is ~250
+             chars of remediation steps) otherwise run off the card and users only see
+             the first words. Do not remove. -->
+        <Border x:Name="ErrorPanel" Margin="0,12,0,0" Padding="12,10" CornerRadius="8"
+                Background="{StaticResource Brush.DangerSurface}" Visibility="Collapsed">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="&#xE7BA;" Style="{StaticResource Text.Icon}"
+                           Foreground="{StaticResource Brush.Danger}"
+                           VerticalAlignment="Top" Margin="0,2,10,0" />
+                <TextBlock x:Name="ErrorLabel" Grid.Column="1" TextWrapping="Wrap"
+                           Foreground="{StaticResource Brush.Danger}"
+                           LineHeight="20" LineStackingStrategy="BlockLineHeight" />
+            </Grid>
+        </Border>
+    </StackPanel>
 </UserControl>

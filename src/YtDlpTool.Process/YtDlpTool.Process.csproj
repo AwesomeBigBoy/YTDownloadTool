@@ -15,4 +15,11 @@
   <ItemGroup>
     <InternalsVisibleTo Include="YtDlpTool.Process.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- v1.5.0: the AllowUntrustedCertificates workaround, as a yt-dlp plugin that
+         YtDlpTlsPlugin writes to disk at startup. Embedded (not shipped as a loose
+         file) so it always matches the app version and needs no updater entry. -->
+    <EmbeddedResource Include="Plugins\ytdlptool_tls_relax.py"
+                      LogicalName="YtDlpTool.Process.Plugins.ytdlptool_tls_relax.py" />
+  </ItemGroup>
 </Project>

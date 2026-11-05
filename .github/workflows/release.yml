@@ -57,18 +57,11 @@ jobs:
       - name: Self-contained publish
         run: dotnet publish src/YtDlpTool/YtDlpTool.csproj -c Release -r win-x64 --no-restore
 
-      - name: Setup Python (for yt-dlp source build)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Build patched yt-dlp.exe from upstream source
-        shell: pwsh
-        run: |
-          $publishDir = (Get-ChildItem -Recurse -Path src/YtDlpTool/bin/Release -Filter publish -Directory | Select-Object -First 1).FullName
-          ./build/build-patched-ytdlp.ps1 -OutputDir $publishDir
-
-      - name: Fetch external deps (ffmpeg)
+      # v1.5.0: yt-dlp is upstream's official onedir build, downloaded and SHA-256
+      # verified by fetch-external-deps.ps1 — no Python, no PyInstaller. The patched
+      # build we used to compile here was blocked by endpoint security on the
+      # machines this tool is for; see build/external-deps.json.
+      - name: Fetch external deps (yt-dlp + ffmpeg)
         shell: pwsh
         run: |
           $publishDir = (Get-ChildItem -Recurse -Path src/YtDlpTool/bin/Release -Filter publish -Directory | Select-Object -First 1).FullName
@@ -129,7 +122,7 @@ jobs:
           # before packing; it is uploaded to the release from here instead.
           $pkgSrc = Join-Path $stage 'bin/yt-dlp-pkg.zip'
           $pkgOut = Join-Path $env:RUNNER_TEMP 'yt-dlp-pkg.zip'
-          if (-not (Test-Path $pkgSrc)) { throw "Expected $pkgSrc — build-patched-ytdlp.ps1 did not produce the onedir package" }
+          if (-not (Test-Path $pkgSrc)) { throw "Expected $pkgSrc — fetch-external-deps.ps1 did not produce the yt-dlp package" }
           Move-Item -Path $pkgSrc -Destination $pkgOut -Force
           "pkgPath=$pkgOut" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 

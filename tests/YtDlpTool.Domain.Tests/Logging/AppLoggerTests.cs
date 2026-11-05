@@ -29,6 +29,22 @@ public class AppLoggerTests : IDisposable
     }
 
     [Fact]
+    public void Info_IsOnDiskWithoutAFlush()
+    {
+        // A process that is killed (Task Manager, a crash, a forced logoff) never reaches
+        // Flush or Dispose; its buffered Info lines — the whole session — went with it.
+        var log = new AppLogger(_dir, LogLevel.Info, () => DateTime.Parse("2026-05-14T12:00:00"));
+        log.Info("startup.begin", new Dictionary<string, string> { ["version"] = "1.5.0" });
+
+        using (var reader = new StreamReader(new FileStream(Path.Combine(_dir, "2026-05-14.log"),
+                   FileMode.Open, FileAccess.Read, FileShare.ReadWrite)))
+        {
+            Assert.Contains("startup.begin version=1.5.0", reader.ReadToEnd());
+        }
+        log.Dispose();
+    }
+
+    [Fact]
     public void Log_RespectsLevel()
     {
         using var log = new AppLogger(_dir, LogLevel.Warn, () => DateTime.UtcNow);

@@ -17,24 +17,82 @@ public partial class UrlInputView : UserControl
     private readonly DispatcherTimer _debounce;
     private CancellationTokenSource? _inFlightCts;
     private MainViewModel? Vm => DataContext as MainViewModel;
+    private MainWindow? Main => Window.GetWindow(this) as MainWindow;
 
     public UrlInputView()
     {
         InitializeComponent();
         _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _debounce.Tick += OnDebounceElapsed;
-        IsVisibleChanged += OnIsVisibleChanged;
+        // v1.5.0: Ctrl+V into the box goes through the same handling as 貼上 and drops.
+        DataObject.AddPastingHandler(UrlTextBox, OnPasting);
     }
 
-    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    // v1.5.0: several links, a playlist, or one link inside other text (a chat message, a
+    // whole e-mail) are taken apart instead of pasted verbatim. Text without any YouTube
+    // link pastes as typed, and the box then says what is wrong with it.
+    private void OnPasting(object sender, DataObjectPastingEventArgs e)
     {
-        if (IsVisible) RefreshPasteHint();
+        if (Main is not { } main) return;
+        string? text;
+        try
+        {
+            text = e.SourceDataObject.GetData(DataFormats.UnicodeText, true) as string;
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            return;   // clipboard held by another app: let the TextBox try on its own
+        }
+        if (text is null || LinkExtractor.Extract(text).Count == 0) return;
+        e.CancelCommand();
+        // After the paste command has unwound: the handler may replace the box's text or
+        // open a modal dialog, neither of which belongs inside the TextBox's own paste.
+        Dispatcher.BeginInvoke(() => main.HandleIncomingText(text, fromDrop: false));
+    }
+
+    /// <summary>v1.5.0: a message under the box (a playlist that could not be read, a drop with no link).</summary>
+    public void ShowNotice(string message) => ShowError(message);
+
+    /// <summary>
+    /// v1.5.0: read a playlist's videos. It owns the 「正在讀取…」 strip and the in-flight
+    /// token exactly as a parse does, so a newer paste, another playlist or ✕ cancels it
+    /// and only the newest request touches the strip. Null when it was superseded.
+    /// </summary>
+    public async Task<Process.PlaylistFetchResult?> ReadPlaylistAsync(string url)
+    {
+        var vm = Vm; if (vm is null) return null;
+        _inFlightCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _inFlightCts = cts;
+        HideError();
+        ShowParsing(true, "正在讀取播放清單…");
+        try
+        {
+            var warmup = vm.Host.EnsureYtDlpReadyAsync();
+            if (!warmup.IsCompleted)
+            {
+                ShowHint("元件首次啟動中，請稍候…（防毒軟體正在檢查，僅第一次需要）");
+                await warmup.WaitAsync(cts.Token);
+            }
+            var result = await vm.Host.YtDlp.FetchPlaylistAsync(url, cts.Token);
+            return cts.IsCancellationRequested || !ReferenceEquals(_inFlightCts, cts) ? null : result;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        finally
+        {
+            if (ReferenceEquals(_inFlightCts, cts)) ShowParsing(false);
+        }
     }
 
     private void OnTextChanged(object sender, TextChangedEventArgs e)
     {
-        Placeholder.Visibility = string.IsNullOrEmpty(UrlTextBox.Text) ? Visibility.Visible : Visibility.Collapsed;
-        ErrorLabel.Visibility = Visibility.Collapsed;
+        var empty = string.IsNullOrEmpty(UrlTextBox.Text);
+        Placeholder.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+        ClearButton.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+        HideError();
         _debounce.Stop();
         _debounce.Start();
     }
@@ -45,36 +103,49 @@ public partial class UrlInputView : UserControl
         var raw = UrlTextBox.Text?.Trim() ?? "";
         if (string.IsNullOrEmpty(raw))
         {
-            HideMeta();
+            // A parse still in flight for the previous text must not resurrect its video.
+            _inFlightCts?.Cancel();
+            ClearMetadata();
             return;
         }
 
-        var validator = new UrlValidator();
-        var result = validator.Validate(raw);
+        var result = new UrlValidator().Validate(raw);
         if (!result.IsValid)
         {
+            _inFlightCts?.Cancel();
             ShowError(Strings.Get("Url.InvalidNotYouTube"));
-            HideMeta();
+            ClearMetadata();
             return;
         }
 
-        await FetchMetadataAsync(result.CanonicalUrl!);
+        if (result.IsPlaylist)
+        {
+            // v1.5.0: a playlist page — its videos are picked in a list instead.
+            _inFlightCts?.Cancel();
+            ClearMetadata();
+            if (Main is { } main) await main.OpenPlaylistAsync(result.CanonicalUrl!);
+            return;
+        }
+
+        await FetchMetadataAsync(result.CanonicalUrl!, result.PlaylistId);
     }
 
-    private async Task FetchMetadataAsync(string url)
+    private async Task FetchMetadataAsync(string url, string? playlistId)
     {
         var vm = Vm; if (vm is null) return;
         _inFlightCts?.Cancel();
         // v1.3.8: capture the CTS in a local. Every use below MUST go through `cts`,
         // never through the _inFlightCts field — a newer parse reassigns that field
         // while this call is suspended, so reading it later resolves to the SUCCESSOR's
-        // token and this call sails on uncancelled. Latent since the field was
-        // introduced; v1.3.7's `await warmup` made the suspension long enough to hit
-        // in practice. Field log 2026-08-28: two url.parse.started for one url_hash
-        // 2.8s apart, then two concurrent metadata processes that starved each other.
+        // token and this call sails on uncancelled. Log 2026-08-28: two
+        // url.parse.started for one url_hash 2.8s apart, then two concurrent metadata
+        // processes that starved each other.
         var cts = new CancellationTokenSource();
         _inFlightCts = cts;
-        ParsingBar.Visibility = Visibility.Visible;
+        // An Enter-retry of the same text fires no TextChanged, so the previous attempt's
+        // error would otherwise stay up beside this parse's result.
+        HideError();
+        ShowParsing(true);
         vm.IsParsing = true;
 
         var urlHash = AppLogger.HashSuffix(url);
@@ -86,13 +157,9 @@ public partial class UrlInputView : UserControl
 
         try
         {
-            // v1.3.7: wait for the one-per-launch yt-dlp cold start instead of racing
-            // it. Previously a paste within the first ~40s of launch fired a third
-            // concurrent PyInstaller extraction alongside the health and update probes,
-            // and all three then lost to the 30s watchdog on exactly the machines where
-            // extraction is already slow. Awaiting it costs nothing once warm (the task
-            // is already completed) and turns the pathological case into a wait with an
-            // explanation instead of a guaranteed failure.
+            // v1.3.7: wait for the one-per-launch yt-dlp cold start instead of racing it.
+            // Awaiting costs nothing once warm (the task is already completed) and turns
+            // a slow first start into a wait with an explanation instead of a failure.
             var warmup = vm.Host.EnsureYtDlpReadyAsync();
             if (!warmup.IsCompleted)
             {
@@ -104,34 +171,39 @@ public partial class UrlInputView : UserControl
             cts.Token.ThrowIfCancellationRequested();
 
             var result = await vm.Host.YtDlp.FetchMetadataAsync(url, cts.Token);
+            // v1.5.0: FetchMetadataAsync reports cancellation as a failed result rather than
+            // throwing, so a parse cancelled by ✕, by an invalid edit or by a newer link used
+            // to show 「下載失敗：[cancelled]」 — or, when its process finished inside the kill
+            // grace period, bring the old video back. Whatever it returned is stale: it must
+            // not touch the UI, the log or the SSL prompt.
+            if (cts.IsCancellationRequested || !ReferenceEquals(_inFlightCts, cts)) return;
             if (!result.IsSuccess || result.Metadata is null)
             {
-                var mapped = vm.Host.YtDlp is null ? null : Domain.Services.ErrorMapper.Map(result.ErrorStderr ?? "");
-                ShowError(mapped?.UserMessage ?? Strings.Get("Url.InvalidNotYouTube"));
-                HideMeta();
-                vm.CurrentMetadata = null;
+                var mapped = ErrorMapper.Map(result.ErrorStderr ?? "");
+                ShowError(mapped.UserMessage);
+                ClearMetadata();
                 vm.Host.Logger.Warn("url.parse.failed", new Dictionary<string, string>
                 {
                     ["url_hash"] = urlHash,
-                    ["category"] = mapped?.Category.ToString() ?? "Unknown",
-                    ["error_code"] = mapped?.ErrorCode ?? "E-UNKNOWN",
+                    ["category"] = mapped.Category.ToString(),
+                    ["error_code"] = mapped.ErrorCode,
                     ["elapsed_ms"] = ((int)sw.ElapsedMilliseconds).ToString(),
                     ["details"] = TruncateForLog(result.ErrorStderr ?? "")
                 });
                 // v1.3.0/1.3.3: only offer the SSL bypass when the failure looks
-                // SSL-related. ShouldOfferSslPrompt checks both the code and the
-                // raw stderr, so zero-output timeouts (yt-dlp launch failure) don't
-                // get mis-routed into "is this SSL?".
-                if (mapped is not null && ViewModels.MainViewModel.ShouldOfferSslPrompt(mapped))
+                // SSL-related, so zero-output timeouts (yt-dlp launch failure) are not
+                // mis-routed into "is this SSL?".
+                if (MainViewModel.ShouldOfferSslPrompt(mapped))
                 {
                     App.OfferSslBypassPrompt(vm.Host,
                         "貼上 YouTube 網址後解析失敗：" + mapped.UserMessage);
                 }
                 return;
             }
+
             vm.CurrentMetadata = result.Metadata;
-            ShowMeta(result.Metadata);
-            if (!vm.ShowFirstHint) vm.ShowFirstHint = true;
+            vm.CurrentPlaylistId = playlistId;
+            _ = LoadThumbnailAsync(vm, result.Metadata);
             vm.Host.Logger.Info("url.parse.completed", new Dictionary<string, string>
             {
                 ["url_hash"] = urlHash,
@@ -139,21 +211,22 @@ public partial class UrlInputView : UserControl
                 ["formats_count"] = result.Metadata.Formats.Count.ToString(),
                 ["elapsed_ms"] = ((int)sw.ElapsedMilliseconds).ToString()
             });
-            await ShowFirstHintBriefly();
         }
         catch (OperationCanceledException) { /* user typed more */ }
         finally
         {
-            ParsingBar.Visibility = Visibility.Collapsed;
-            vm.IsParsing = false;
-            ClearHint();
+            // Only the newest parse owns the indicator; a superseded one must not hide it.
+            if (ReferenceEquals(_inFlightCts, cts))
+            {
+                ShowParsing(false);
+                vm.IsParsing = false;
+            }
         }
     }
 
     /// <summary>
-    /// Collapses newlines to " | " and clips to 500 chars so a noisy yt-dlp stderr
-    /// fits cleanly on one log line. Used only for the operational log; raw stderr
-    /// stays in MappedError.RawDetails for diagnostic chaining.
+    /// Collapses newlines to " | " and clips to 500 chars so a noisy yt-dlp stderr fits
+    /// on one log line. Raw stderr stays in MappedError.RawDetails.
     /// </summary>
     private static string TruncateForLog(string s)
     {
@@ -163,10 +236,25 @@ public partial class UrlInputView : UserControl
         return collapsed;
     }
 
-    private void ShowError(string message)
+    private static async Task LoadThumbnailAsync(MainViewModel vm, VideoMetadata meta)
     {
-        ErrorLabel.Text = message;
-        ErrorLabel.Visibility = Visibility.Visible;
+        // Routed through InMemoryThumbnailLoader so nothing lands in WinINet's cache. The card
+        // shows it 160 px wide; 320 keeps it sharp at 200 % scaling.
+        var bmp = await InMemoryThumbnailLoader.LoadAsync(meta.ThumbnailUrl, maxPixelWidth: 320).ConfigureAwait(true);
+        // A newer parse may have replaced the video while this was loading.
+        if (bmp is not null && ReferenceEquals(vm.CurrentMetadata, meta)) vm.CurrentThumbnail = bmp;
+    }
+
+    private void ShowParsing(bool on, string? caption = null)
+    {
+        // Every start sets its own caption, so a playlist read's text never lingers on a
+        // parse that follows it.
+        if (on) ParsingCaption.Text = caption ?? Strings.Get("Url.Parsing");
+        ParsingPanel.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        // The pulse animation runs exactly while IsIndeterminate is true. Collapsing the
+        // bar alone would leave its clock ticking — an idle-CPU cost for nothing.
+        ParsingBar.IsIndeterminate = on;
+        if (!on) WarmupHint.Visibility = Visibility.Collapsed;
     }
 
     private void ShowHint(string message)
@@ -175,47 +263,38 @@ public partial class UrlInputView : UserControl
         WarmupHint.Visibility = Visibility.Visible;
     }
 
-    private void ClearHint() => WarmupHint.Visibility = Visibility.Collapsed;
-
-    private void ShowMeta(VideoMetadata m)
+    private void ShowError(string message)
     {
-        MetaTitle.Text = m.Title;
-        MetaChannel.Text = m.Channel;
-        MetaDuration.Text = m.Duration.ToString(@"hh\:mm\:ss");
-        // Route the thumbnail through InMemoryThumbnailLoader so we never write a copy
-        // into WinINet's cache. The fire-and-forget Task is OK here: if it succeeds we
-        // poke the Image source; if it fails we silently leave the placeholder.
-        _ = LoadMetaThumbAsync(m.ThumbnailUrl);
-        MetaCard.Visibility = Visibility.Visible;
+        ErrorLabel.Text = message;
+        ErrorPanel.Visibility = Visibility.Visible;
     }
 
-    private async Task LoadMetaThumbAsync(string url)
-    {
-        var bmp = await InMemoryThumbnailLoader.LoadAsync(url).ConfigureAwait(true);
-        if (bmp is not null) MetaThumb.Source = bmp;
-    }
+    private void HideError() => ErrorPanel.Visibility = Visibility.Collapsed;
 
-    private void HideMeta()
+    private void ClearMetadata()
     {
-        MetaCard.Visibility = Visibility.Collapsed;
-        MetaThumb.Source = null;
+        if (Vm is null) return;
+        Vm.CurrentMetadata = null;
+        Vm.CurrentThumbnail = null;
+        Vm.CurrentPlaylistId = null;
     }
 
     private void OnPasteClicked(object sender, RoutedEventArgs e)
     {
-        if (Clipboard.ContainsText())
-        {
-            UrlTextBox.Text = Clipboard.GetText();
-            UrlTextBox.CaretIndex = UrlTextBox.Text.Length;
-        }
-        PasteButton.Visibility = Visibility.Collapsed;
+        string? text = null;
+        try { if (Clipboard.ContainsText()) text = Clipboard.GetText(); }
+        catch (System.Runtime.InteropServices.ExternalException) { /* clipboard held by another app */ }
+        if (text is null) { UrlTextBox.Focus(); return; }
+        if (Main is { } main) main.HandleIncomingText(text, fromDrop: false);
+        else SetTextProgrammatically(text);
     }
 
     private void OnClearClicked(object sender, RoutedEventArgs e)
     {
+        _inFlightCts?.Cancel();
         UrlTextBox.Text = "";
-        HideMeta();
-        if (Vm is not null) Vm.CurrentMetadata = null;
+        ClearMetadata();
+        UrlTextBox.Focus();
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)
@@ -228,37 +307,26 @@ public partial class UrlInputView : UserControl
         }
     }
 
-    private async Task ShowFirstHintBriefly()
-    {
-        FirstHint.Visibility = Visibility.Visible;
-        FirstHint.Opacity = 1;
-        await Task.Delay(3000);
-        var anim = new System.Windows.Media.Animation.DoubleAnimation
-        {
-            From = 1, To = 0, Duration = TimeSpan.FromMilliseconds(500)
-        };
-        anim.Completed += (_, _) => FirstHint.Visibility = Visibility.Collapsed;
-        FirstHint.BeginAnimation(System.Windows.UIElement.OpacityProperty, anim);
-    }
-
     public void SetTextProgrammatically(string text)
     {
-        UrlTextBox.Text = text;
-        UrlTextBox.CaretIndex = text.Length;
+        var trimmed = text.Trim();
+        var same = UrlTextBox.Text == trimmed;
+        UrlTextBox.Text = trimmed;
+        UrlTextBox.CaretIndex = UrlTextBox.Text.Length;
         UrlTextBox.Focus();
+        // v1.5.0: the same text raises no TextChanged. Pasting a link again after a failed
+        // parse is how people retry, so parse it again explicitly.
+        if (same)
+        {
+            _debounce.Stop();
+            OnDebounceElapsed(this, EventArgs.Empty);
+        }
     }
 
-    public void RefreshPasteHint()
+    /// <summary>Focus the URL box; optionally select its text so the next paste replaces it.</summary>
+    public void FocusUrlBox(bool selectAll = false)
     {
-        try
-        {
-            if (!Clipboard.ContainsText()) { PasteButton.Visibility = Visibility.Collapsed; return; }
-            var text = Clipboard.GetText();
-            var validator = new UrlValidator();
-            PasteButton.Visibility = validator.Validate(text).IsValid && string.IsNullOrEmpty(UrlTextBox.Text)
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-        }
-        catch { PasteButton.Visibility = Visibility.Collapsed; }
+        UrlTextBox.Focus();
+        if (selectAll) UrlTextBox.SelectAll();
     }
 }

@@ -26,7 +26,21 @@ public partial class AdvancedOptionsView : UserControl
     private void OnVmChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainViewModel.CurrentMetadata)) RebuildSubtitles();
+        else if (e.PropertyName == nameof(MainViewModel.SelectedMode)) UpdateSubtitleVisibility();
         else if (e.PropertyName == nameof(MainViewModel.ClipRange)) SyncClipCheckboxFromVm();
+    }
+
+    // v1.5.0: subtitles are only ever muxed into video modes (YtDlpDownloadExecutor skips
+    // them for AudioOnly), so offering them in 音訊 mode was a promise the app never kept.
+    private void UpdateSubtitleVisibility()
+    {
+        var audio = Vm?.SelectedMode == Domain.Models.DownloadMode.AudioOnly;
+        var hasItems = SubtitlesList.Items.Count > 0;
+        SubtitleSection.Visibility = !audio && hasItems ? Visibility.Visible : Visibility.Collapsed;
+        NoSubtitlesText.Text = audio ? "音訊模式不含字幕" : "這部影片沒有可選的字幕";
+        NoSubtitlesText.Visibility = Vm?.CurrentMetadata is not null && (audio || !hasItems)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     /// <summary>
@@ -51,7 +65,7 @@ public partial class AdvancedOptionsView : UserControl
         if (Vm is null || Vm.CurrentMetadata is null)
         {
             SubtitlesList.ItemsSource = Array.Empty<object>();
-            SubtitleSection.Visibility = Visibility.Collapsed;
+            UpdateSubtitleVisibility();
             return;
         }
         Vm.SelectedSubtitleLanguages.Clear();
@@ -75,7 +89,7 @@ public partial class AdvancedOptionsView : UserControl
             {
                 Content = kv.Value.DisplayName,
                 Tag = kv.Key,
-                Margin = new Thickness(0, 0, 8, 4)
+                Style = (Style)FindResource("CheckBox.Chip"),
             })
             .ToList();
         foreach (var c in items)
@@ -84,7 +98,7 @@ public partial class AdvancedOptionsView : UserControl
             c.Unchecked += OnSubtitleToggle;
         }
         SubtitlesList.ItemsSource = items;
-        SubtitleSection.Visibility = items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        UpdateSubtitleVisibility();
     }
 
     private void OnSubtitleToggle(object sender, RoutedEventArgs e)

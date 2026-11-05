@@ -1,0 +1,39 @@
+<Window x:Class="YtDlpTool.Dialogs.AppDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="480" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False"
+        Background="{StaticResource Brush.Surface}"
+        Foreground="{StaticResource Brush.Text}"
+        FontFamily="{StaticResource Font.Default}" FontSize="13"
+        UseLayoutRounding="True">
+    <!-- v1.5.0: dark replacement for MessageBox.Show, which always renders light and
+         flashed a white box over the dark app. Same call shape (AppDialog.Show). -->
+    <Grid Margin="24,20,24,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <TextBlock x:Name="IconGlyph" Grid.Row="0" Grid.Column="0"
+                   Style="{StaticResource Text.Icon}" FontSize="22"
+                   VerticalAlignment="Top" Margin="0,1,14,0" />
+
+        <StackPanel Grid.Row="0" Grid.Column="1">
+            <TextBlock x:Name="TitleText" Style="{StaticResource Text.Title}" TextWrapping="Wrap" />
+            <ScrollViewer x:Name="MessageScroll" Margin="0,8,0,0" MaxHeight="420" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                <TextBlock x:Name="MessageText" TextWrapping="Wrap"
+                           Foreground="{StaticResource Brush.TextSecondary}"
+                           LineHeight="21" LineStackingStrategy="BlockLineHeight" />
+            </ScrollViewer>
+        </StackPanel>
+
+        <StackPanel x:Name="ButtonRow" Grid.Row="1" Grid.ColumnSpan="2"
+                    Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0" />
+    </Grid>
+</Window>
