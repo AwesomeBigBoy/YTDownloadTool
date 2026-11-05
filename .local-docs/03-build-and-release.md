@@ -18,9 +18,13 @@ Run the app locally:
 dotnet run --project src/YtDlpTool -c Release
 ```
 
-This does NOT bundle yt-dlp.exe / ffmpeg.exe — for the local-run case you
-need to drop both into `src/YtDlpTool/bin/Release/net8.0/bin/` yourself, or
-run `build/fetch-external-deps.ps1 -OutputDir <that bin folder>`.
+This does NOT bundle yt-dlp / ffmpeg. For a local run, let the release script
+fetch exactly what CI ships (yt-dlp onedir + ffmpeg + ffprobe, SHA-256 verified)
+into the build output — it creates `bin\` underneath the folder you give it:
+
+```pwsh
+./build/fetch-external-deps.ps1 -OutputDir src/YtDlpTool/bin/Release/net8.0-windows10.0.19041.0/win-x64
+```
 
 ## Single-file portable publish (manual, what users get)
 
@@ -52,10 +56,14 @@ The workflow `.github/workflows/release.yml` runs on `windows-2022`:
    so the assembly metadata matches the tag.
 4. **Restore / Test / Publish** — standard. Test failure aborts the release.
 5. **Fetch external deps** — `build/fetch-external-deps.ps1` downloads
-   yt-dlp.exe from the yt-dlp release and ffmpeg.exe from GyanD/codexffmpeg.
-   Both pinned to specific versions.
-6. **Assemble portable folder** — combines published .exe + bin/yt-dlp.exe
-   + bin/ffmpeg.exe.
+   upstream's **official** `yt-dlp_win.zip` (onedir build) and ffmpeg from
+   GyanD/codexffmpeg, each pinned by version + SHA-256. yt-dlp is expanded to
+   `bin/yt-dlp/` and the untouched zip is also kept as `bin/yt-dlp-pkg.zip` (the
+   updater asset). The script fails if `yt-dlp --version` differs from the pin.
+   No Python or PyInstaller is involved any more — v1.3.0–v1.4.0 compiled a
+   patched yt-dlp here, and endpoint security blocked it (design commitment #13).
+6. **Assemble portable folder** — combines published .exe + bin/yt-dlp/
+   + bin/ffmpeg.exe + bin/ffprobe.exe.
 7. **Build manifest** — `build/build-manifest.ps1` writes `manifest.json`
    listing each file with its SHA-256.
 8. **Install cosign**, **Sigstore-sign** the manifest and each of the three
@@ -70,8 +78,8 @@ The workflow `.github/workflows/release.yml` runs on `windows-2022`:
 
 ```json
 {
-  "yt-dlp":  { "version": "2026.03.17", "sha256": "..." },
-  "ffmpeg":  { "version": "8.1.1",      "sha256": "..." }
+  "yt-dlp":  { "version": "2026.10.26", "url": ".../2026.10.26/yt-dlp_win.zip", "sha256": "..." },
+  "ffmpeg":  { "version": "8.1.1-essentials_build", "url": "...", "sha256": "..." }
 }
 ```
 
@@ -79,18 +87,24 @@ The SHA-256 is verified by `fetch-external-deps.ps1` after download. If the
 upstream changes hashes (e.g., re-published a release), the workflow fails
 loudly rather than silently shipping a different binary.
 
+**Bumping yt-dlp** is a two-field edit: set `version`/`url` to the new tag and
+copy the `yt-dlp_win.zip` line from that release's `SHA2-256SUMS` into `sha256`.
+Nothing else changes — the zip is shipped as-is (design commitment #13).
+
 ## Release artifacts (what ends up on GitHub)
 
-For each tag `vX.Y.Z` the release page contains exactly 9 files:
+For each tag `vX.Y.Z` the release page contains exactly 11 files:
 
 ```
-YtDlpTool-vX.Y.Z-win-x64.zip       ← what users download
+YtDlpTool-vX.Y.Z-win-x64.zip       ← what users download (bin/yt-dlp/ already expanded)
 YtDlpTool.exe                       \
 YtDlpTool.exe.sigstore               |
-yt-dlp.exe                           |  individually fetched by
-yt-dlp.exe.sigstore                  >  the in-app updater
-ffmpeg.exe                           |  (NOT the zip)
-ffmpeg.exe.sigstore                  |
+yt-dlp-pkg.zip                       |  individually fetched by
+yt-dlp-pkg.zip.sigstore              |  the in-app updater
+ffmpeg.exe                           >  (NOT the zip). yt-dlp-pkg.zip is
+ffmpeg.exe.sigstore                  |  upstream's yt-dlp_win.zip, unmodified;
+ffprobe.exe                          |  the app expands it on next launch.
+ffprobe.exe.sigstore                 |
 manifest.json                        |
 manifest.json.sigstore              /
 ```

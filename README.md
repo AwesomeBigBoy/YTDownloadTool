@@ -1,6 +1,6 @@
 # YtDlpTool
 
-A lightweight Windows desktop YouTube downloader built on yt-dlp. Aurora Glass UI, hardened security, portable folder distribution, one-click Sigstore-verified updates.
+A lightweight Windows desktop YouTube downloader built on yt-dlp. Fast dark UI, hardened security, portable folder distribution, one-click Sigstore-verified updates. Everything it needs ships in the folder — no Python, no .NET install, no administrator rights.
 
 ## Install
 
@@ -44,21 +44,27 @@ cosign verify-blob `
   YtDlpTool.exe
 ```
 
-The same command form works for `yt-dlp.exe`, `ffmpeg.exe`, and `manifest.json` against their respective `.sigstore` bundles.
+The same command form works for `yt-dlp-pkg.zip`, `ffmpeg.exe`, `ffprobe.exe`, and `manifest.json` against their respective `.sigstore` bundles. `yt-dlp-pkg.zip` is yt-dlp's official `yt-dlp_win.zip`, unmodified — its SHA-256 matches the `SHA2-256SUMS` file of the yt-dlp release it came from.
 
 ## Features
 
-- Single YouTube URL → choose mode (audio / video+audio / video-only) → choose quality → download
-- Up to 5 concurrent downloads
+- Single YouTube URL → choose format (video / audio / silent video) → choose any available resolution → download
+- Playlists and several links at once: pick the videos from a list, one format and a quality ceiling for all of them
+- Paste, Ctrl+V or drag links (or a browser's .url shortcut) onto the window; Shorts, mobile and music links work too
+- Remembers the format and quality of the last download
+- File names carry the quality (`Title [1080p].mp4`, `Title [1080p 無聲].mp4`, `Title [128kbps].m4a`), so different qualities of one video sit side by side
+- Retry for failed downloads; download progress on the taskbar button
+- Re-adding a partly downloaded playlist: answer "file already exists" once for the rest of it; links not yet added when the app closes are offered again next time
+- Up to 10 concurrent downloads (default 2)
 - Subtitle download + embed (up to 3 languages per video)
 - Time-range clipping (precise, keyframe-aligned)
-- Thumbnail embedding
+- Cover art (the video thumbnail) embedded in audio downloads
 - One-click background updates with Sigstore verification
 
 ## Security
 
 - All YouTube URLs validated against a strict allowlist before invoking yt-dlp.
-- Subprocess invocation uses argument arrays (no shell), an environment whitelist, and stdout buffer caps.
+- Subprocess invocation uses argument arrays (no shell), a pinned PATH with Python hijack variables removed, and stdout buffer caps.
 - Updates verify both a Sigstore-signed manifest and a Sigstore signature on every individual file.
 - App stores nothing remotely; no telemetry. Logs do not include URLs or video titles.
 

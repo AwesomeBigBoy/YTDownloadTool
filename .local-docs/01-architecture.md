@@ -46,12 +46,11 @@ The solution lives at `YtDlpTool.sln`. Five projects.
 
 | Project | Role | Depends on |
 |---|---|---|
-| `src/YtDlpTool` | WPF UI, App entry, AppHost composition | Process, Domain |
-| `src/YtDlpTool.ViewModels` | MVVM view models, MVVM Toolkit source-generated | Domain |
+| `src/YtDlpTool` | WPF UI (Views, ViewModels — MVVM Toolkit source-generated — Dialogs, the dark `Resources/Theme.xaml`), App entry, AppHost composition | Process, Domain |
 | `src/YtDlpTool.Process` | Subprocess execution; ProcessSandbox, YtDlpRunner, FfmpegRunner | Domain |
 | `src/YtDlpTool.Domain` | Pure types: Config, Logging, Persistence, Updates, Security, Services. **No I/O except where unavoidable.** | (none) |
-| `tests/YtDlpTool.Domain.Tests` | xUnit, 156 tests | Domain |
-| `tests/YtDlpTool.Process.Tests` | xUnit, 41 tests (+ FakeYtDlp helper exe) | Process |
+| `tests/YtDlpTool.Domain.Tests` | xUnit, 209 tests | Domain |
+| `tests/YtDlpTool.Process.Tests` | xUnit, 80 tests (+ FakeYtDlp helper exe) | Process |
 | `tests/FakeYtDlp` | Tiny console app the Process tests invoke as a stand-in for yt-dlp | (none) |
 
 ## Key types and what they do
@@ -83,6 +82,31 @@ The solution lives at `YtDlpTool.sln`. Five projects.
   - `DownloadSubtitlesOnlyAsync` — `--skip-download --write-subs`, 2 min timeout
 - **`FfmpegRunner`** (`src/YtDlpTool.Process/FfmpegRunner.cs`): clip cutting
   via stream-copy (`-c copy`) and audio remux.
+- **`YtDlpLayout`** (`src/YtDlpTool.Process/YtDlpLayout.cs`): yt-dlp lives in
+  `bin\yt-dlp\` (onedir). An update delivers `bin\yt-dlp-pkg.zip` — upstream's
+  official `yt-dlp_win.zip`, unmodified. Since v1.5.0 every update path puts it
+  into service right after the download (`ActivatePackage`, via
+  `AppHost.ActivateYtDlpPackageAsync`); one left over (an update that also replaced
+  YtDlpTool.exe, or a swap that failed) is expanded in the background on the next
+  launch, after the window is up. Directory renames retry for up to 10 s because
+  antivirus holds freshly written files open.
+- **Links in** (v1.5.0): 貼上, Ctrl+V (window and URL box) and drag-and-drop all go
+  through `MainWindow.HandleIncomingText` → `LinkExtractor` (Domain; every candidate
+  passes `UrlValidator`, which also accepts /shorts/, /live/, /embed/, m. and music.).
+  One video → the URL box as before; a playlist → `OpenPlaylistAsync`
+  (`YtDlpRunner.FetchPlaylistAsync`, `--flat-playlist`); several links →
+  `BatchDialog` → `MainViewModel.AddBatch`, which parses and queues them one by one.
+- **Remembered choice** (v1.5.0): `AppConfig.LastMode/LastVideoQuality/LastAudioQuality`,
+  written on 下載 and on batch confirm, resolved per video by
+  `QualityOptions.PreferredIndex` (never above the remembered resolution).
+- **Taskbar progress** (v1.5.0): `TaskbarProgressTracker` averages the current batch
+  (finished members count as done, so the bar never runs backwards);
+  `MainWindow.ApplyTaskbarProgress` drives `TaskbarItemInfo`.
+- **`YtDlpTlsPlugin`** (`src/YtDlpTool.Process/YtDlpTlsPlugin.cs`): the only
+  customisation of yt-dlp, as a yt-dlp plugin (`Plugins/ytdlptool_tls_relax.py`,
+  embedded in the assembly) loaded with `--plugin-dirs` when the user enabled
+  AllowUntrustedCertificates. v1.5.0 replaced the self-built patched yt-dlp.exe
+  with it; see design commitment #13.
 
 ### Update pipeline
 
@@ -108,15 +132,51 @@ The solution lives at `YtDlpTool.sln`. Five projects.
 - **`StateJournal`** (`src/YtDlpTool.Domain/Persistence/StateJournal.cs`):
   append-only `state.log` so a crash mid-download lets us tell the user
   what was in-flight on next launch. **Exclusive file lock** — only one
-  instance of the app per portable folder.
+  instance of the app per portable folder. v1.5.0: also `LinkPending` /
+  `LinkSettled` from **`BatchJournal`** — playlist / multi-link links not
+  queued yet come back too.
+- **Progress path (v1.5.0):** yt-dlp's stdout reader thread → `YtDlpRunner`
+  (`ProgressReport`, `Processing` once post-processors run) → executor →
+  `DownloadQueue` → `MainViewModel.OnQueueEvent`, all through
+  **`InlineProgress<T>`** (synchronous, in order). The UI throttle
+  (`ProgressThrottle`) runs on that thread; only what passes is posted to
+  the dispatcher. `Progress<T>` used to post every line to the UI thread first.
+- **`ConflictDecisions`** (Domain): one 檔案已存在 dialog at a time; an answer
+  given "for the rest of this batch" (`DownloadJob.BatchId`) answers the others.
+- **`OutputNames`** (Domain): the folder + stem of every running download; a second one
+  with the same name takes `<title>_2`. `CoverArt` decides `--embed-thumbnail` (音訊 only).
+- **Final name (v1.5.0):** with no clip, no subtitles and not 音訊, yt-dlp writes
+  `<title>.<ext>` itself; otherwise it writes `<title>.media.<ext>` and the executor
+  cuts / muxes / renames. **`DownloadLeftovers`** tells yt-dlp's work files for a
+  name (`.fNNN.<ext>`, `.part`, `.ytdl`, `.temp.<ext>`) from finished files; they are
+  cleared at the start of a job (no `--force-overwrites`, so `--continue` resumes
+  within the job) and on failure.
+
+### UI (v1.5.0)
+
+- One window: native title bar darkened by `Interop/DarkTitleBar`, a composer card
+  (`UrlInputView` → `VideoCardView` → format / quality / 下載 → 更多選項 + 儲存到)
+  and `QueuePanelView`, which owns its own scrolling so it virtualizes.
+- Decisions about what the UI shows live in Domain so they are unit-tested:
+  `QualityOptions` (every resolution once, H.264 → VP9 → AV1, video-only streams
+  first, Shorts by their shorter side, 1080p preselected), `QueueStatusText`
+  (row status wording) and `ProgressThrottle` (≤ 4 progress updates/s per job).
+- `Dialogs/AppDialog` replaces `MessageBox.Show` everywhere except the two crash
+  reports in `App.xaml.cs`, which must work even if the theme failed to load.
+- Rendering rules are design commitment #9.
 
 ### Configuration + logging
 
 - **`AppConfig`** (`src/YtDlpTool.Domain/Models/AppConfig.cs`): plain
   serializable config. Stored as `config.json`. Source-generated JSON
-  via `System.Text.Json` to stay AOT-friendly.
+  via `System.Text.Json` to stay AOT-friendly. v1.5.0: `ConfigStore` writes
+  `config.json.bak` and then `config.json` in place (never a rename over it —
+  endpoint security holds that ~3–6 s) and reads the `.bak` if the main file
+  is missing or cut short.
 - **`AppLogger`** (`src/YtDlpTool.Domain/Logging/AppLogger.cs`): structured
   key/value log lines, daily files in `logs/`, auto-purges after 7 days.
+  v1.5.0: every line is flushed as it is written, so a killed process keeps
+  its log.
   **Never logs raw URLs or titles** — always `HashSuffix(url)` for privacy.
   This rule is non-negotiable: every URL touches user data and could end up
   in a bug report screenshot.

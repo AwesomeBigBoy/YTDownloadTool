@@ -35,6 +35,171 @@ Key events to grep for:
 | `config.path` / `config.loaded` (v1.2.1+) | Which config.json path was read + key flag values |
 | `update.cleanup.stale` (v1.2.2+) | Startup deleted N stale `.old` files from the install folder |
 | `update.cleanup.stale_failed` (v1.2.2+) | A `.old` file couldn't be deleted at startup — usually AV holding it; harmless |
+| `ytdlp.package.activate result=… trigger=… elapsed_ms=…` (v1.5.0+) | A downloaded `yt-dlp-pkg.zip` was swapped in (`InPlace`) or left for the next launch (`NeedsRestart`, with `error=`). `trigger` = `startup` (background, after the window is up), `startup_legacy`, `repair` (health banner 修復), `banner_one_click`, `settings_check`, `settings_redownload`. Replaces v1.4.0's `ytdlp.package.expand` |
+| `ytdlp.package.reprobe ok=… version=…` (v1.5.0+) | `--version` right after an in-place swap from an update path |
+| `ytdlp.download.retry reason=forbidden_mid_stream` (v1.5.0+) | A download got HTTP 403 after data had arrived and was re-run once |
+| `ytdlp.invoke.begin op=playlist` / `playlist.opened entries=N` (v1.5.0+) | A playlist was read with `--flat-playlist`; N videos listed (max 500) |
+| `playlist.failed error_code=…` (v1.5.0+) | The playlist could not be read; the box showed 「無法讀取這個播放清單：…」 |
+| `batch.item.failed error_code=…` (v1.5.0+) | One video of a playlist / multi-link batch could not be parsed (`no_formats`: parsed, but nothing to download in that 格式). Three in a row with the same network / TLS / rate-limit / component / disk code stop the rest of the batch (`BatchQueue`), and the status line says 「連續 3 部無法加入，已停止加入其餘 N 部：<reason>」 |
+
+## Failure mode: a new yt-dlp is downloaded but not used (`ytdlp.package.activate result=NeedsRestart`)
+
+**Symptom:** 修復, 一鍵更新 or 重新下載元件 finishes downloading, then asks for a restart
+(「新的 yt-dlp 元件已下載，重新啟動程式後生效」).
+
+**Read the `error=` field.** `Access to the path '…\bin\yt-dlp.new' is denied` (or
+`…\bin\yt-dlp`) means a file inside that folder was open while it was being renamed.
+Windows refuses to rename a directory while ANY file in it is open, even with full
+sharing, which is how antivirus scans a file. v1.5.0 retries each rename for up to 10 s
+(`YtDlpLayout.DefaultSwapWait`); still failing after that means something held the
+files longer: a running download (yt-dlp.exe in use), or a scanner that is slow on this
+machine. The package stays in `bin\`, and the next launch expands it in the background
+before anything uses yt-dlp, so a restart is a complete fix. Log 2026-11-04,
+before the retry existed: extraction took 16 s under real-time scanning, then the
+rename failed instantly.
+
+**Startup expands in the background (v1.5.0).** The first launch after an update shows
+the window first (8 s instead of 28 s on the machine above); a parse started meanwhile
+waits with 「元件首次啟動中，請稍候…」 until `ytdlp.package.activate trigger=startup` has
+been logged and the warm-up probe has run.
+
+## Failure mode: a large download fails part-way with HTTP 403 (E-AUTH001)
+
+**Symptom:** a 1080p download stops at a few percent with 「YouTube 拒絕了這次請求…」,
+and the same link works when queued again.
+
+**In the log:** `download.failed error_code=E-AUTH001` whose stdout tail shows progress
+lines (data arrived) before `ERROR: unable to download video data: HTTP Error 403:
+Forbidden`. YouTube revoked the stream part-way. v1.5.0 re-runs such a download once
+(`ytdlp.download.retry`): a second run re-extracts fresh URLs and `--continue` resumes
+the partial file. A 403 before any progress is a real refusal and is not retried.
+Measured 2026-11-04: 1 of 7 large downloads hit it, at 7.8%. yt-dlp also warns on
+every call that YouTube extraction without a JavaScript runtime is deprecated; if
+mid-stream 403s become frequent, see the JS runtime entry in 08-known-limitations.
+
+## Failure mode: every parse fails with E-BLOCK01 after ~27 s (「處理元件無法啟動」)
+
+**Symptom:** pasting any URL ends, roughly 27 seconds later, in 處理元件無法啟動：可能被
+防毒軟體或系統政策阻擋…. Often it *used to work* — the first few launches succeed,
+then every one fails.
+
+**In the log:**
+```
+ytdlp.invoke.end op=metadata exit_code=-1 pid=0 start_ms=0 first_output_ms=(none) stdout_bytes=0 stderr_bytes=0
+url.parse.failed category=ComponentMissing error_code=E-BLOCK01 elapsed_ms=27395 details="...Process.Start failed: 存取被拒..."
+```
+`pid=0` + `start_ms=0` + Access denied means `Process.Start` itself was refused —
+yt-dlp never ran a line of code. `elapsed_ms` in the high twenties is the agent
+holding the launch while it decides.
+
+**Root cause (fixed in v1.5.0):** an endpoint-protection agent's behaviour monitoring
+refusing a binary it has no reputation for. v1.3.0–v1.4.0 shipped a yt-dlp.exe we
+compiled ourselves (to carry the AllowUntrustedCertificates hook): unsigned, a hash
+nobody else in the world has. The agent tolerated it for a while, then switched to
+blocking every launch. v1.5.0 ships upstream's official build byte-for-byte — see
+design commitment #13 — and moved the hook into a yt-dlp plugin.
+
+**How it was proven (repeat this if it ever comes back):** launch the shipped
+`bin\yt-dlp\yt-dlp.exe --version` and a freshly extracted official `yt-dlp_win.zip`
+alternately, four times each, the way ProcessSandbox does (UseShellExecute=false,
+CreateNoWindow, redirected streams). 2026-11 result on an affected machine:
+official 0.70–0.87 s every time; the self-built one "Access denied" after
+26.4–27.6 s every time, with one entry per refusal in the agent's own
+behaviour-monitoring log.
+
+**If it happens with the official build:** the agent's policy now blocks yt-dlp by
+name or behaviour, not by reputation. Nothing inside the app can fix that; the
+machine's IT needs an exception for the portable folder.
+
+## Failure mode: UI lag — dropdowns, sliders, hover all feel delayed
+
+**Symptom:** interactive controls react late, startup feels slow, the process sits at
+~100% of one CPU core while idle (Task Manager shows ~25% on a 4-core PC).
+
+**Root cause (fixed in v1.5.0):** the pre-v1.5.0 UI animated a full-window gradient
+forever, under cards carrying DropShadowEffect blur, and `ApplyRenderMode` forces
+software rendering on every Intel HD/UHD GPU (see the next section). In software
+mode the CPU redrew the whole window 60 times a second, and every interaction
+queued behind those frames. Measured 2026-11: same build, animation on → 95–100% of
+a core; animation off → 0.0%. v1.5.0's flat dark UI has no animations at rest, no
+effects and no large translucent layers (design commitment #9). Measured on the same
+software-rendered machine: idle 0.5% of a core and 127 MB working set (v1.4.0: 95–100%
+and 240 MB); during a download the app itself used 0 ms of CPU over 8 s, because
+progress is throttled to 4 updates/s per job and posted with BeginInvoke.
+
+**If it comes back:** look for anything that animates while idle (an indeterminate
+ProgressBar left running while collapsed counts), any `Effect`, or `Opacity`/
+translucent brushes over large areas. Measure with the process's
+`UserProcessorTime` delta over ~10 s of idle; anything above a few percent is a bug.
+
+## Failure mode: everything that touches a file is slow — saves freeze the window, small downloads take ~40 s
+
+**Symptom:** a 19-second clip takes 35–45 s from 下載 to 已完成; the row sat at
+「80% · 115 KB/s」 for 20–30 s (v1.5.0: 「80% · 處理中…」); before v1.5.0's fix the window
+also froze for ~6 s after every 下載 click.
+
+**In the log:** nothing looks wrong. `ytdlp.invoke.end op=download` is late although the
+progress lines show the streams arrived within a second; `media.download.completed` →
+`download.completed` used to be ~6 s for an .mp4 (the rename of `<title>.media.mp4`).
+
+**Root cause:** endpoint security holds individual file operations for a fixed ~3 s:
+a rename over an existing file (File.Replace ≈ 6 s, File.Move-overwrite ≈ 3 s, Python's
+`os.replace` ≈ 3 s), and operations by unsigned processes on .mp4 files. Measure it
+without the app: time `File.Move(tmp, existing, overwrite: true)` against
+`File.WriteAllText(existing, …)` in the same folder (3000 ms vs 2 ms on the development
+PC); a fixed multiple of ~3 s whatever the file size is the signature.
+
+**What v1.5.0 does:** writes config.json in place (+ `.bak`), writes the TLS plugin in
+place, and lets yt-dlp write a download's final name directly when nothing follows it
+(see 08, "File operations on PCs with endpoint security"). `--embed-thumbnail` still costs
+~15–19 s per 影片 download there. **The real fix is outside the app:** an exclusion for
+the portable folder and the save folder, or a signed build.
+
+## Failure mode: 「處理元件的檔案已損毀」 (E-COMP002)
+
+**Symptom:** every parse or download fails at once with E-COMP002; the health banner
+offers 修復.
+
+**In the log:** `Process.Start failed: 元件檔案已損毀（不是有效的 Windows 程式）— yt-dlp.exe`
+(or ffmpeg.exe). `ProcessSandbox` checks the file is a PE image before starting it
+(`PeImage`), because a damaged exe that still begins with a DOS "MZ" header made Windows
+itself show an "Unsupported 16-bit application" box on every attempt. Win32 errors 193
+and 216 from CreateProcess map to the same message.
+
+**Fix:** 修復, or 設定 → 進階 → 重新下載元件. If it comes back right after a repair, the
+download is being cut short (proxy, disk) or something rewrites the file.
+
+## Log events added in v1.5.0's last round
+
+- `ytdlp.tls_plugin removed=True|False error=…` — the 允許不受信任憑證 setting is off
+  and the plugin folder was deleted (or could not be).
+- `ytdlp.package.activate … error=無法刪除 yt-dlp-pkg.zip：…` with a success result — the
+  package was put in place but could not be removed; later launches only retry the
+  removal (the expanded folder carries `.package-sha256`).
+- state.log `LinkPending` / `LinkSettled` — playlist / multi-link links waiting to be
+  parsed (BatchJournal); open ones are offered at the next start.
+- `download.name_in_use suffix=_2` — another running download held this name; this one
+  was saved as `<title>_2` (OutputNames).
+- `download.progress.listener_failed` — something that listens to progress threw; logged
+  once per download and ignored (progress runs on yt-dlp's reader thread, where an
+  unhandled exception would end the app).
+
+## Failure mode: 「下載卡住」 (E-STUCK01) right after answering the 檔案已存在 dialog
+
+**Symptom:** the user re-downloads a file that already exists, the conflict dialog
+appears, they answer it after a while — and the row immediately fails with 下載卡住.
+
+**In the log:** `download.started`, then `download.stuck timeout_s=90` while the dialog
+was still open, then `ytdlp.invoke.end op=download cancelled=true first_output_ms=(none)`
+the moment they clicked.
+
+**Root cause (fixed in v1.5.0):** the executor shows the dialog from inside a running
+job, and DownloadQueue's no-progress watchdog counted the time the user spent deciding
+as a stall. It cancelled the job's token after 90 s; the choice then launched yt-dlp
+with an already-cancelled token. The executor now reports
+`DownloadProgressSnapshot(..., WaitingForUser: true)` before the dialog and an ordinary
+report after it; the watchdog skips its check while waiting. Guarded by
+`DownloadQueue_WaitingForUser_DoesNotTripTheWatchdog`.
 
 ## Failure mode: White window of doom (Intel HD/UHD iGPU)
 
@@ -165,10 +330,13 @@ Two log lines settle most of this failure mode in seconds:
 
 **1. `version.probe`** — if it reads `ytdlp=(probe-failed) ffmpeg=<version>`,
 you are done looking at the network. `--version` performs zero network I/O,
-and ffmpeg.exe went through the *same* `ProcessSandbox` successfully. The
-difference between the two binaries is that yt-dlp.exe is PyInstaller onefile
-(self-extracts ~30 MB to a fresh `%TEMP%\_MEIxxxxxx` on **every** run, so AV
-rescans it every time — it never "warms up"). ffmpeg.exe is native.
+and ffmpeg.exe went through the *same* `ProcessSandbox` successfully. Up to
+v1.3.8 the difference was that yt-dlp.exe was PyInstaller onefile
+(self-extracting ~30 MB to a fresh `%TEMP%\_MEIxxxxxx` on **every** run, so AV
+rescanned it every time — it never "warmed up"); v1.4.0 moved to onedir. In
+v1.3.0–v1.4.0 it was also a self-built binary that endpoint security distrusts —
+see the E-BLOCK01 section above; v1.5.0 ships upstream's build. ffmpeg.exe is
+native.
 
 v1.3.6 surfaces this to the user directly via `health.ytdlp ok=false` + the
 red startup banner, instead of letting them discover it 38 seconds into their
@@ -265,8 +433,10 @@ If subs are present but missing from final file:
 
 - Check `render.mode` log entry. If `mode=software-forced` or
   `mode=software-auto`, hardware acceleration is off. Software rendering
-  can interact badly with custom WPF effects (DropShadow, blur). Aurora
-  Glass theme uses DropShadow heavily.
+  can interact badly with custom WPF effects (DropShadow, blur). The pre-v1.5.0
+  Aurora Glass theme used DropShadow heavily; v1.5.0 uses no effects at all
+  (design commitment #9), so a white window there points at the driver, not
+  at our visuals.
 - v1.1.x ships with `Config.ForceSoftwareRendering = false` and an
   auto-fallback when `RenderCapability.Tier == 0`. managed environments can
   force software rendering via GPO; that's the common path.

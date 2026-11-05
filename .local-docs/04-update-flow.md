@@ -107,9 +107,10 @@ declare matching `[JsonPropertyName("camelCase")]` attributes):
   "ytdlpVersion": "2026.03.17",
   "ffmpegVersion": "8.1.1",
   "files": [
-    { "name": "YtDlpTool.exe", "size": ..., "sha256": "...", "sigstoreName": "YtDlpTool.exe.sigstore" },
-    { "name": "yt-dlp.exe",    "size": ..., "sha256": "...", "sigstoreName": "yt-dlp.exe.sigstore" },
-    { "name": "ffmpeg.exe",    "size": ..., "sha256": "...", "sigstoreName": "ffmpeg.exe.sigstore" }
+    { "name": "YtDlpTool.exe",  "component": "App",    "targetRelativePath": "YtDlpTool.exe", ... },
+    { "name": "yt-dlp-pkg.zip", "component": "YtDlp",  "targetRelativePath": "bin\\yt-dlp-pkg.zip", ... },
+    { "name": "ffmpeg.exe",     "component": "Ffmpeg", "targetRelativePath": "bin\\ffmpeg.exe", ... },
+    { "name": "ffprobe.exe",    "component": "Ffmpeg", "targetRelativePath": "bin\\ffprobe.exe", ... }
   ],
   "owner": "AwesomeBigBoy",
   "repo": "YTDownloadTool",

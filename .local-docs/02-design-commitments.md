@@ -119,27 +119,33 @@ ffmpeg has the same issue.
   on every host configuration we support**.
 - Stream-copy means no re-encoding — lossless and fast.
 
-## 9. UI theme uses DynamicResource, not StaticResource.
+## 9. One dark theme, built to stay cheap under software rendering.
 
-> Source: v1.1.x theme switching incident — theme swaps at runtime require
-> DynamicResource binding. StaticResource resolves at parse-time and never
-> updates.
+> Source: v1.5.0 — the Aurora UI animated a full-window gradient forever under
+> DropShadowEffect cards; with WPF in software mode (forced on every Intel
+> HD/UHD GPU, see `App.ApplyRenderMode`) that alone held one CPU core at
+> 95-100 % while idle, and every dropdown, slider and hover queued behind it.
+> Measured on the same build: animation on 95-100 %, off 0.0 %.
 
-For any resource that depends on the theme (brushes, colors, but not raw
-doubles like spacing), use:
-
-```xml
-<Border Background="{DynamicResource SurfaceBrush}" ... />
-```
-
-Not:
-
-```xml
-<Border Background="{StaticResource SurfaceBrush}" ... />
-```
-
-`ThemeService.Apply` swaps the merged dictionary at runtime; DynamicResource
-is the only thing that picks up the change.
+- **Dark only.** `ThemeService` and `Theme.Light/Dark.xaml` were removed;
+  `AppConfig.Theme` survives only so existing config.json files still load.
+  Everything in `Resources/Theme.xaml` is `StaticResource` (brushes are
+  frozen). If a runtime theme switch is ever reintroduced, every
+  theme-dependent reference has to go back to `DynamicResource` — that was the
+  v1.1.x lesson this commitment used to state.
+- **Nothing animates while the app is idle.** The only Storyboard is the
+  indeterminate ProgressBar pulse, which runs exactly while `IsIndeterminate`
+  is true — and callers that hide such a bar must also clear
+  `IsIndeterminate`, or its clock keeps ticking while invisible.
+- **No `Effect`** (DropShadow/Blur are CPU pixel shaders in software mode) and
+  **no translucent brushes over large areas**. Hover/press feedback is an
+  instant property swap.
+- **Lists own their scrolling.** A ListBox inside an outer ScrollViewer is
+  measured with infinite height and silently stops virtualizing.
+- Progress reaches the UI through `ProgressThrottle` (≤ 4/s per job) and
+  `Dispatcher.BeginInvoke`, never `Invoke`.
+- Check after UI work: idle `UserProcessorTime` over ~10 s stays near 0
+  (v1.5.0: 0.5 % of a core; v1.4.0: 95-100 %).
 
 ## 10. Log files never contain raw URLs, titles, or user-identifying data.
 
@@ -177,3 +183,28 @@ When changing or adding resources in `Theme.xaml` / `Light.xaml` / `Dark.xaml`:
 - This is a feature: prevents the queue from being corrupted by two writers.
 - If you ever need multi-instance support, redesign StateJournal first (probably
   switch to a SQLite WAL-mode journal). Do not loosen the lock.
+
+## 13. Ship upstream's yt-dlp byte-for-byte. Customise it only from the outside.
+
+> Source: v1.5.0 incident — the patched yt-dlp.exe we compiled ourselves
+> (v1.3.0–v1.4.0) was held ~27 s and then refused with "Access denied" on every
+> launch by an endpoint-protection agent's behaviour monitoring. Upstream's
+> official build, launched the same way by the same app on the same machine,
+> started in under a second, every time.
+
+- yt-dlp is upstream's official Windows onedir release (`yt-dlp_win.zip`),
+  pinned by version and SHA-256 in `build/external-deps.json` and fetched by
+  `build/fetch-external-deps.ps1`. **Never rebuild yt-dlp.**
+- Why: a unique, unsigned PyInstaller binary has no reputation, and the
+  security stack on managed desktops (behaviour monitoring, reputation-based
+  application control) treats exactly that as suspicious. Upstream's file is
+  identical on millions of machines. Every rebuild would also reset whatever
+  reputation the previous one had earned.
+- Anything we need changed goes through yt-dlp's own extension points: a CLI
+  flag, or a plugin loaded with `--plugin-dirs` (`YtDlpTlsPlugin` is the only
+  one, and it is loaded only when the user opted into
+  AllowUntrustedCertificates).
+- Corollary to commitment #1: a yt-dlp update is a pin bump in
+  `external-deps.json`, nothing more. `fetch-external-deps.ps1` fails the build
+  if `yt-dlp --version` does not match the pin, because UpdateChecker compares
+  those two strings.
