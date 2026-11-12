@@ -8,6 +8,8 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using YtDlpTool.Dialogs;
+using YtDlpTool.Interop;
+using YtDlpTool.Process;
 
 namespace YtDlpTool;
 
@@ -43,6 +45,24 @@ public partial class App : Application
             ["app_dir"]     = AppContext.BaseDirectory,
             ["session"]     = Environment.UserInteractive ? "interactive" : "non-interactive",
         });
+
+        // v1.5.2: one running copy per folder (SingleInstance), taken before AppHost opens
+        // state.log. A restart waits for the copy that started it to let go; any other launch
+        // hands over to the copy already open instead of failing with 「程式啟動失敗」.
+        var restarted = SingleInstance.IsRestart(e.Args);
+        _instance = SingleInstance.TryAcquire(AppContext.BaseDirectory,
+            restarted ? TimeSpan.FromSeconds(20) : TimeSpan.Zero);
+        if (_instance is null)
+        {
+            var shown = OtherInstance.BringToFront();
+            WriteEarlyDiag("startup.second_instance", new Dictionary<string, string>
+            {
+                ["restarted"] = restarted ? "true" : "false",
+                ["activated"] = shown ? "true" : "false",
+            });
+            Shutdown(0);
+            return;
+        }
 
         try
         {
@@ -304,6 +324,9 @@ public partial class App : Application
             System.Diagnostics.Process.Start(new ProcessStartInfo
             {
                 FileName = exePath,
+                // v1.5.2: the new copy waits for this one to close (SingleInstance) instead of
+                // taking it for a second launch and handing over to it.
+                Arguments = SingleInstance.RestartedArgument,
                 UseShellExecute = true,
             });
         }
@@ -341,10 +364,15 @@ public partial class App : Application
 
     private readonly CancellationTokenSource _appShutdown = new();
 
+    // v1.5.2: this process's hold on the folder (SingleInstance).
+    private SingleInstance? _instance;
+
     protected override void OnExit(ExitEventArgs e)
     {
         _appShutdown.Cancel();
         Host?.Dispose();
+        // Only after AppHost has closed its files: a restarted copy is waiting for this.
+        _instance?.Dispose();
         _appShutdown.Dispose();
         base.OnExit(e);
     }
