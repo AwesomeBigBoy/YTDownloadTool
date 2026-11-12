@@ -18,11 +18,17 @@ public partial class HealthBannerViewModel : ObservableObject
     [ObservableProperty] private string _headline = "";
 
     // v1.5.0: one-click 修復 (AppHost.RepairYtDlpAsync).
-    [ObservableProperty] private bool _canRepair;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowRepairButton))]
+    private bool _canRepair;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowRepairStatus))]
+    [NotifyPropertyChangedFor(nameof(ShowRepairButton))]
     private bool _isRepairing;
+
+    /// <summary>v1.5.1: hidden while a repair runs, whichever caller started it (YtDlpRepairFlow).</summary>
+    public bool ShowRepairButton => CanRepair && !IsRepairing;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowRepairStatus))]

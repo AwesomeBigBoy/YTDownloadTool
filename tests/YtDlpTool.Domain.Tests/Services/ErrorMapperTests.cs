@@ -112,6 +112,45 @@ public class ErrorMapperTests
         Assert.Equal(ErrorCategory.ComponentMissing, r.Category);
         Assert.Equal("E-BLOCK01", r.ErrorCode);
         Assert.Contains("系統政策", r.UserMessage);
+        // v1.5.1: a policy refuses whatever build is there, so 修復 cannot help here.
+        Assert.DoesNotContain("修復", r.UserMessage);
+    }
+
+    // v1.5.1, report 2026-11-12: on standard accounts yt-dlp.exe had been removed by endpoint
+    // security. The message asked them to allow the executables or to move the folder to
+    // Downloads or the desktop — not something they can do, and the folder was already on the
+    // desktop — while 修復, one click away on the banner, fetches the component again.
+    private const string MissingExe =
+        "[stderr]\nProcess.Start failed: 找不到可執行檔（檔案可能被防毒隔離或缺失） — An error occurred trying to start " +
+        "process 'C:\\Users\\u\\Desktop\\YtDlpTool\\bin\\yt-dlp\\yt-dlp.exe' with working directory " +
+        "'C:\\Users\\u\\Desktop\\YtDlpTool\\bin\\yt-dlp'. 系統找不到指定的檔案。";
+    private const string AccessDenied =
+        "Process.Start failed: 存取被拒（AppLocker / WDAC 可能阻擋此程式執行） — 存取被拒。";
+
+    [Theory]
+    [InlineData(MissingExe)]
+    [InlineData(AccessDenied)]
+    public void Map_YtDlpThatCannotStart_PointsAtRepair(string stderr)
+    {
+        var r = ErrorMapper.Map(stderr);
+
+        Assert.Equal(ErrorCategory.ComponentMissing, r.Category);
+        Assert.Equal("E-BLOCK01", r.ErrorCode);
+        Assert.Contains("修復", r.UserMessage);
+        Assert.DoesNotContain("Downloads", r.UserMessage);
+    }
+
+    [Theory]
+    [InlineData(MissingExe, true)]
+    [InlineData(AccessDenied, true)]
+    [InlineData("Process.Start failed: 元件檔案已損毀（不是有效的 Windows 程式）— yt-dlp.exe", true)]
+    [InlineData("Process.Start failed: AppLocker 群組原則拒絕執行此程式 — Some Win32 detail", false)]
+    [InlineData("[timeout after 30s]", false)]
+    [InlineData("ERROR: [youtube] xxxxx: Video unavailable", false)]
+    [InlineData("", false)]
+    public void CallsForRepair_OnlyWhenFetchingYtDlpAgainCanFixIt(string stderr, bool expected)
+    {
+        Assert.Equal(expected, ErrorMapper.CallsForRepair(ErrorMapper.Map(stderr)));
     }
 
     [Fact]

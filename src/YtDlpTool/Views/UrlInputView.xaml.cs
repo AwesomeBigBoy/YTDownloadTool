@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
+using YtDlpTool.Dialogs;
 using YtDlpTool.Domain.Logging;
 using YtDlpTool.Domain.Models;
 using YtDlpTool.Domain.Services;
@@ -52,6 +53,36 @@ public partial class UrlInputView : UserControl
 
     /// <summary>v1.5.0: a message under the box (a playlist that could not be read, a drop with no link).</summary>
     public void ShowNotice(string message) => ShowError(message);
+
+    // v1.5.1: asked once per session; a 「否」 leaves the banner's 修復 in place.
+    private bool _repairOffered;
+
+    /// <summary>
+    /// v1.5.1 (report 2026-11-12): a parse or playlist read failed because yt-dlp cannot
+    /// start. People pasted a link seconds after opening, read the message under the box and
+    /// never pressed the banner's 修復 — so ask right here, and parse the link again once it
+    /// is fixed. The question waits until the failed request has unwound.
+    /// </summary>
+    public void OfferRepair()
+    {
+        if (Vm is not { } vm) return;
+        vm.Host.ShowYtDlpUnavailable();
+        if (_repairOffered) return;
+        _repairOffered = true;
+        Dispatcher.BeginInvoke(new Action(async () =>
+        {
+            var owner = Window.GetWindow(this);
+            var answer = AppDialog.Show(owner,
+                "yt-dlp 元件無法啟動，所以無法解析這個網址。\n\n" +
+                "要現在修復嗎？程式會重新下載並驗證 yt-dlp 元件（約 24 MB），完成後立即換上，不必重新開啟程式。",
+                "需要修復元件", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.Yes) return;
+            if (!await YtDlpRepairFlow.RunAsync(vm.Host, owner)) return;
+            // The link is still in the box: read it again now that yt-dlp answers.
+            _debounce.Stop();
+            _debounce.Start();
+        }));
+    }
 
     /// <summary>
     /// v1.5.0: read a playlist's videos. It owns the 「正在讀取…」 strip and the in-flight
@@ -198,6 +229,8 @@ public partial class UrlInputView : UserControl
                     App.OfferSslBypassPrompt(vm.Host,
                         "貼上 YouTube 網址後解析失敗：" + mapped.UserMessage);
                 }
+                // v1.5.1: yt-dlp itself cannot start; offer the fix where the user is looking.
+                if (ErrorMapper.CallsForRepair(mapped)) OfferRepair();
                 return;
             }
 

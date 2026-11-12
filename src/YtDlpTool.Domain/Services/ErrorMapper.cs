@@ -67,6 +67,20 @@ public static class ErrorMapper
                 RegexOptions.Compiled | RegexOptions.IgnoreCase)),
     };
 
+    // ProcessSandbox's hint for Win32 error 1260: a policy refuses the program outright.
+    private const string PolicyBlockHint = "群組原則拒絕執行此程式";
+
+    /// <summary>
+    /// v1.5.1: whether fetching yt-dlp again (修復) can fix this failure — yt-dlp.exe is
+    /// missing, refused or damaged. Not a policy block (it refuses whatever build is there),
+    /// not a slow first start (E-TIMEOUT02: waiting is the fix), not anything yt-dlp itself
+    /// reported once it ran.
+    /// </summary>
+    public static bool CallsForRepair(MappedError error) =>
+        error.ErrorCode == "E-COMP002" ||
+        (error.ErrorCode == "E-BLOCK01" &&
+         !(error.RawDetails?.Contains(PolicyBlockHint, StringComparison.Ordinal) ?? false));
+
     public static MappedError Map(string stderr)
     {
         if (string.IsNullOrWhiteSpace(stderr))
@@ -140,13 +154,26 @@ public static class ErrorMapper
                 "E-COMP002", false, raw);
         }
 
+        // v1.5.1: a definite policy block refuses any build, so 修復 cannot help here.
+        if (stderr.Contains(PolicyBlockHint, StringComparison.Ordinal))
+        {
+            return new MappedError(ErrorCategory.ComponentMissing,
+                "處理元件無法啟動：這台電腦的系統政策不允許執行 yt-dlp，必須由電腦的管理者允許後才能使用。",
+                "E-BLOCK01", false, raw);
+        }
+
+        // v1.5.1 (report 2026-11-12): yt-dlp.exe missing — removed by endpoint security — or
+        // refused. The old text asked people on standard accounts to allow the executables or
+        // to move the folder to Downloads or the desktop; they cannot do the first, the folder
+        // was already on the desktop, and Downloads is where scanning is strictest. 修復 on the
+        // banner fetches the official build again; the parse also offers it (CallsForRepair).
         if (stderr.Contains("AppLocker", StringComparison.OrdinalIgnoreCase) ||
             stderr.Contains("被防毒隔離", StringComparison.Ordinal) ||
             stderr.Contains("找不到可執行檔", StringComparison.Ordinal) ||
             stderr.Contains("存取被拒", StringComparison.Ordinal))
         {
             return new MappedError(ErrorCategory.ComponentMissing,
-                "處理元件無法啟動：可能被防毒軟體或系統政策阻擋。請確認 YtDlpTool.exe、yt-dlp.exe、ffmpeg.exe 在這台機器允許執行，或將整個資料夾移到使用者個人目錄（如 Downloads 或桌面）。",
+                "處理元件無法啟動：yt-dlp 可能被防毒軟體移除或阻擋。請按視窗上方提示列的「修復」，程式會重新下載並驗證元件後立即換上。",
                 "E-BLOCK01", false, raw);
         }
 

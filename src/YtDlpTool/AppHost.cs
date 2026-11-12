@@ -431,6 +431,22 @@ public sealed class AppHost : IDisposable
     /// </summary>
     public async Task RunStartupHealthCheckAsync(CancellationToken ct)
     {
+        // v1.5.1: a yt-dlp.exe that is not there needs no warm-up to be known broken, and
+        // people paste a link within seconds of opening (report 2026-11-12: 3 s, before the
+        // settle delay below was up, so the message came first and the banner after it). A
+        // startup swap may be about to put the exe in place, so only when none is pending.
+        if (_pendingPackage is null && !File.Exists(_ytDlpExecutable))
+        {
+            Logger.Info("health.ytdlp", new Dictionary<string, string>
+            {
+                ["ok"]        = "false",
+                ["version"]   = "(missing)",
+                ["warmup_ms"] = "0",
+            });
+            ShowYtDlpUnavailable();
+            return;
+        }
+
         // Same 5s settle delay as the update check: let the first frame render before
         // competing for a cold-start disk read of a ~30 MB binary.
         try { await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false); }
@@ -461,25 +477,48 @@ public sealed class AppHost : IDisposable
         });
 
         if (healthy || ct.IsCancellationRequested) return;
+        ShowYtDlpUnavailable();
+    }
 
-        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+    /// <summary>
+    /// v1.5.1: the red banner with 修復, for a yt-dlp that cannot start — from the startup
+    /// check, and from a parse or playlist read that failed because of it
+    /// (UrlInputView.OfferRepair). The headline says which: a missing exe (removed by
+    /// endpoint security, in the 2026-11-12 report) is not "not responding". Any thread.
+    /// </summary>
+    public void ShowYtDlpUnavailable()
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null) return;
+        if (!dispatcher.CheckAccess())
         {
-            HealthVm.Headline = "yt-dlp 元件沒有回應，下載功能目前無法使用";
-            HealthVm.Details =
-                "啟動檢查時，yt-dlp.exe 在時限內沒有回報版本號。這代表元件本身無法啟動，" +
-                "與網路連線無關——在這個狀態下解析網址一定會逾時失敗。\n\n" +
-                "請依序嘗試：\n\n" +
-                "1. 按提示列上的「修復」，程式會重新下載並驗證 yt-dlp 元件（約 24 MB）後立即換上。" +
-                "從 v1.4.0 以前的版本更新上來的電腦，多半做這一步就會恢復。\n\n" +
-                "2. 把整個程式資料夾移出「下載」資料夾，改放到桌面或個人目錄，然後重新開啟。" +
-                "從瀏覽器下載的壓縮檔解壓後會帶有封鎖標記，防毒對這類檔案的檢查特別嚴格。\n\n" +
-                "3. 檢查防毒軟體的隔離區，若 yt-dlp.exe 被隔離，請還原並加入信任清單。\n\n" +
-                "4. 若以上都無效，請開啟命令提示字元，切換到本程式的 bin\\yt-dlp 目錄執行 " +
-                "「yt-dlp.exe --version」。若該指令在命令提示字元中也沒有輸出，" +
-                "問題出在系統阻擋了這支程式；若可以正常執行，請把 logs 資料夾內的紀錄檔回報給開發者。";
-            HealthVm.CanRepair = true;
-            HealthVm.IsVisible = true;
-        });
+            dispatcher.BeginInvoke(new Action(ShowYtDlpUnavailable));
+            return;
+        }
+
+        var missing = !File.Exists(_ytDlpExecutable);
+        HealthVm.Headline = missing
+            ? "找不到 yt-dlp 元件（可能被防毒軟體移除），下載功能目前無法使用"
+            : "yt-dlp 元件沒有回應，下載功能目前無法使用";
+        HealthVm.Details =
+            (missing
+                ? "程式的 bin\\yt-dlp 資料夾裡沒有 yt-dlp.exe，多半是被防毒軟體移除了。" +
+                  "這與網路連線無關——在這個狀態下無法解析任何網址。\n\n"
+                : "啟動檢查時，yt-dlp.exe 在時限內沒有回報版本號。這代表元件本身無法啟動，" +
+                  "與網路連線無關——在這個狀態下解析網址一定會逾時失敗。\n\n") +
+            "請依序嘗試：\n\n" +
+            "1. 按提示列上的「修復」，程式會重新下載並驗證 yt-dlp 元件（約 24 MB）後立即換上，" +
+            "不必重新開啟程式。從 v1.4.0 或更早的版本更新上來的電腦，多半做這一步就會恢復。" +
+            "若修復後過一陣子又出現這個提示，代表防毒軟體會移除它，請見第 3 點。\n\n" +
+            "2. 把整個程式資料夾移出「下載」資料夾，改放到桌面或個人目錄，然後重新開啟。" +
+            "從瀏覽器下載的壓縮檔解壓後會帶有封鎖標記，防毒對這類檔案的檢查特別嚴格。\n\n" +
+            "3. 檢查防毒軟體的隔離區，若 yt-dlp.exe 被隔離，請還原並加入信任清單" +
+            "（通常需要電腦的管理者協助）。\n\n" +
+            "4. 若以上都無效，請開啟命令提示字元，切換到本程式的 bin\\yt-dlp 目錄執行 " +
+            "「yt-dlp.exe --version」。若該指令在命令提示字元中也沒有輸出，" +
+            "問題出在系統阻擋了這支程式；若可以正常執行，請把 logs 資料夾內的紀錄檔回報給開發者。";
+        HealthVm.CanRepair = true;
+        HealthVm.IsVisible = true;
     }
 
     /// <summary>

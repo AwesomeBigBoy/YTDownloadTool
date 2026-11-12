@@ -111,6 +111,41 @@ behaviour-monitoring log.
 name or behaviour, not by reputation. Nothing inside the app can fix that; the
 machine's IT needs an exception for the portable folder.
 
+## Failure mode: every parse fails with E-BLOCK01 at once — yt-dlp.exe is gone
+
+**Symptom:** after 一鍵更新 from v1.4.0, pasting any URL fails within a second with
+處理元件無法啟動…, although the health banner offers 修復. Report 2026-11-12: standard
+(non-admin) accounts, portable folder on the desktop.
+
+**In the log:**
+```
+ytdlp.executable layout=dir exists=false                       (already under v1.4.0)
+version.probe app=1.4.0.0 ytdlp=(probe-failed) …
+update.apply.entries count=1 names=YtDlpTool.exe trigger=banner_one_click
+ytdlp.invoke.end op=metadata exit_code=-1 pid=0 start_ms=0 …
+url.parse.failed … error_code=E-BLOCK01 elapsed_ms=33 details="…找不到可執行檔（檔案可能被防毒隔離或缺失）… 系統找不到指定的檔案。"
+```
+`exists=false` under v1.4.0 means endpoint security had removed the self-built
+yt-dlp.exe — the stronger form of the ~27 s refusal above. v1.4.0's updater cannot read
+the version of a missing yt-dlp, so 一鍵更新 replaced YtDlpTool.exe only; by design 修復 is
+the way back (AppHost.RepairYtDlpAsync). The account type is not the cause: the same
+update wrote the new YtDlpTool.exe into that folder, and 修復 writes nowhere else.
+
+**Why people stayed stuck on v1.5.0:** they pasted a link ~3 s after opening, before the
+health check's 5 s settle delay put the banner up, and the message under the box asked
+them to allow the executables or to move the folder to Downloads or the desktop —
+impossible on a standard account, and the folder was already on the desktop.
+
+**What v1.5.1 does:** the startup check shows the banner at once when the exe is missing
+(`health.ytdlp ok=false version=(missing) warmup_ms=0`, headline 找不到 yt-dlp 元件); the
+E-BLOCK01 text points at 修復 (a definite policy block, Win32 1260, keeps a text of its
+own and no 修復); and a parse or playlist read that fails this way asks 「要現在修復嗎？」
+once per session (`ErrorMapper.CallsForRepair`), then reads the link again once yt-dlp
+answers.
+
+**If it comes back after a repair:** the agent removes the official build too. As above,
+nothing inside the app can fix that; the portable folder needs an exception.
+
 ## Failure mode: UI lag — dropdowns, sliders, hover all feel delayed
 
 **Symptom:** interactive controls react late, startup feels slow, the process sits at

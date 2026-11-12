@@ -146,6 +146,8 @@ public partial class MainWindow : Window
                 // The same offer a pasted video gets; App asks once per session.
                 if (MainViewModel.ShouldOfferSslPrompt(error))
                     App.OfferSslBypassPrompt(vm.Host, "讀取播放清單失敗：" + error.UserMessage);
+                // v1.5.1: same as a video whose parse failed because yt-dlp cannot start.
+                if (ErrorMapper.CallsForRepair(error)) UrlInput.OfferRepair();
                 return;
             }
 
