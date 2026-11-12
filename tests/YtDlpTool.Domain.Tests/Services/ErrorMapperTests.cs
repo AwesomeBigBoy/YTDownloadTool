@@ -22,6 +22,48 @@ public class ErrorMapperTests
             "user message must not contain English 'Error'");
     }
 
+    // v1.5.2, report 2026-11-12 (1): "some videos cannot be downloaded as 影片, but 音訊
+    // works". The two that failed were age-restricted: YouTube refuses them without a
+    // signed-in account and yt-dlp gets no formats at all, video or audio. The message said
+    // the video "may" have an age or region limit, which read as if 音訊 might still work.
+    [Fact]
+    public void Map_AgeRestricted_SaysNeitherVideoNorAudioCanBeDownloaded()
+    {
+        var r = ErrorMapper.Map(
+            "[stdout-tail]\nnull\n[stderr]\nERROR: [youtube] PrBgCUM52Z8: Sign in to confirm your age. This video " +
+            "may be inappropriate for some users. Use --cookies-from-browser or --cookies for the authentication.");
+
+        Assert.Equal(ErrorCategory.YouTubeRefused, r.Category);
+        Assert.Equal("E-AUTH002", r.ErrorCode);
+        Assert.Contains("年齡限制", r.UserMessage);
+        Assert.Contains("音訊", r.UserMessage);
+        Assert.DoesNotContain("可能", r.UserMessage);
+    }
+
+    [Theory]
+    // YouTube writes it with a typographic apostrophe; accept the plain one as well.
+    [InlineData("ERROR: [youtube] abcdefghijk: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication.")]
+    [InlineData("ERROR: [youtube] abcdefghijk: Sign in to confirm you're not a bot")]
+    public void Map_BotCheck_IsNotCalledAnAgeOrRegionLimit(string stderr)
+    {
+        // Asked of networks where many people share one address.
+        var r = ErrorMapper.Map(stderr);
+
+        Assert.Equal(ErrorCategory.YouTubeRefused, r.Category);
+        Assert.Equal("E-AUTH003", r.ErrorCode);
+        Assert.DoesNotContain("年齡", r.UserMessage);
+        Assert.Contains("稍後", r.UserMessage);
+    }
+
+    [Fact]
+    public void Map_Forbidden_KeepsItsCode()
+    {
+        var r = ErrorMapper.Map("ERROR: unable to download video data: HTTP Error 403: Forbidden");
+
+        Assert.Equal(ErrorCategory.YouTubeRefused, r.Category);
+        Assert.Equal("E-AUTH001", r.ErrorCode);
+    }
+
     [Fact]
     public void Map_DamagedComponent_PointsAtRepair()
     {

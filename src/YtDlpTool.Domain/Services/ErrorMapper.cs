@@ -47,6 +47,19 @@ public static class ErrorMapper
             new(@"(ERROR:[^\n]*\b(HTTP Error 429|Too Many Requests)\b)|\bHTTP Error 429\b",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase)),
 
+        // v1.5.2 (report 2026-11-12): an age-restricted video gives yt-dlp no formats at all
+        // without a signed-in account, so 音訊 fails exactly like 影片. Say so plainly; "may
+        // have an age or region limit" read as if switching to 音訊 might work.
+        new(ErrorCategory.YouTubeRefused,     "E-AUTH002",
+            "這部影片有年齡限制：YouTube 要求登入帳號確認年齡才能觀看，因此影片和音訊都無法下載（本工具不支援登入）。", false,
+            new(@"Sign in to confirm your age", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
+
+        // v1.5.2: YouTube's bot check, typically on a network many people share one address on.
+        // It has nothing to do with the video, so the age/region text below misled.
+        new(ErrorCategory.YouTubeRefused,     "E-AUTH003",
+            "YouTube 暫時要求這個網路的連線登入驗證（「確認你不是機器人」），本工具不支援登入。同一個網路有很多人一起使用時比較常出現，請稍後再試。", false,
+            new(@"Sign in to confirm you.re not a bot", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
+
         new(ErrorCategory.YouTubeRefused,     "E-AUTH001",
             "YouTube 拒絕了這次請求，影片可能有年齡或地區限制（本工具不支援登入下載）", false,
             new(@"HTTP Error 403|Sign in to confirm", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
