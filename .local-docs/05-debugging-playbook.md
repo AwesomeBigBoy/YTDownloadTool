@@ -146,6 +146,60 @@ answers.
 **If it comes back after a repair:** the agent removes the official build too. As above,
 nothing inside the app can fix that; the portable folder needs an exception.
 
+## Failure mode: 「程式啟動失敗」 — state.log "is being used by another process"
+
+**Symptom:** opening the app a second time from the same folder (one double click too many,
+or while the first copy is still starting) shows the native 「YtDlpTool 啟動失敗」 box; the
+copy already open is fine.
+
+**In the log:** nothing under `logs\`, since AppHost never got that far. The failed launch's
+`%TEMP%\YtDlpTool-startup-*.log` ends in `startup.fatal type=System.IO.IOException` … "The
+process cannot access the file '…\state.log' because it is being used by another process":
+StateJournal opens it exclusively.
+
+**What v1.5.2 does:** App.OnStartup takes a per-folder mutex (`SingleInstance`) before
+AppHost. A second launch brings the open window to the front, restored if minimized, and
+exits; its startup log says `startup.second_instance restarted=false activated=true`
+(`false`: Windows only flashed the taskbar button, because a launch the user did not start
+may not take the foreground). A restart passes `--restarted` and waits up to 20 s for the
+old copy, which lets go only after AppHost.Dispose has closed state.log. Copies in different
+folders still run side by side. Later versions must keep honouring `--restarted`: it is how
+this one hands over to them after an update.
+
+## Failure mode: "影片 cannot be downloaded, 音訊 can" — age-restricted videos (E-AUTH002)
+
+**Symptom:** some links fail at once; users report it as 影片 failing while 音訊 works.
+
+**In the log:** `url.parse.failed … error_code=E-AUTH001` (v1.5.2: `E-AUTH002`) with
+`ERROR: [youtube] <id>: Sign in to confirm your age.` The parse itself fails, before any
+mode is chosen: without a signed-in account yt-dlp gets no formats, video or audio. In the
+2026-11-12 report the 音訊 that worked was another link — a 68-minute music video that
+downloads fine as 影片 too (checked: 240p, H.264 + AAC, full length). Not fixable without
+sign-in; see 08, "Cookies / sign-in". YouTube's bot check (「Sign in to confirm you're not a
+bot」) has its own code, E-AUTH003.
+
+## Failure mode: 修復 or an update fails with "HttpClient.Timeout of 30 seconds elapsing"
+
+**Symptom:** 修復 (or another update download) fails after half a minute with 「下載
+yt-dlp-pkg.zip 失敗：The request was canceled due to the configured HttpClient.Timeout of
+30 seconds elapsing.」; a later try works within seconds.
+
+**In the log (report 2026-11-12):**
+```
+ytdlp.repair.start names=yt-dlp-pkg.zip
+update.apply.failed reason="下載 yt-dlp-pkg.zip 失敗：The request was canceled due to the configured HttpClient.Timeout of 30 seconds elapsing."
+update.apply.success elapsed_ms=5142                                   (the next try)
+```
+No answer at all within 30 s, then the same file in 5 s: a gateway that scans downloads
+holds the reply until it has checked the whole file, and serves it from its cache after.
+Before v1.5.2 every updater request had 30 s to be answered (the 78 MB exe, answered in
+time, then took 104 s).
+
+**What v1.5.2 does:** API calls (release list, manifest, signatures) keep 30 s. A download
+may wait 5 minutes for the answer and 2 minutes for each piece of the body, and a limit
+that runs out says which, in Chinese (「網路在 5 分鐘內沒有開始傳送檔案…」 /
+「網路連續 2 分鐘沒有收到資料…」).
+
 ## Failure mode: UI lag — dropdowns, sliders, hover all feel delayed
 
 **Symptom:** interactive controls react late, startup feels slow, the process sits at

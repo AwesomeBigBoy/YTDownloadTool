@@ -92,7 +92,20 @@ chain + hostname". For now the full bypass is the only working option.
 
 ### Cookies / sign-in
 - **Why deferred:** out of scope for v1. Many videos work fine anonymously.
-- **Status:** no cookie support. Members-only videos fail.
+- **Status:** no cookie support. Members-only videos fail, and so do age-restricted
+  ones: without a signed-in account YouTube answers 「Sign in to confirm your age」 and
+  yt-dlp gets no formats at all, so 音訊 fails exactly like 影片 (report 2026-11-12 read
+  it as "影片 fails, 音訊 works" — the 音訊 that worked was another video). v1.5.2 says
+  so in E-AUTH002; YouTube's bot check (「confirm you're not a bot」, likelier on a network
+  many people share one address on) has its own E-AUTH003.
+- **Prerequisite, measured 2026-11-12 (yt-dlp 2026.10.26):** with logged-in cookies yt-dlp
+  uses the `web_embedded,tv_samsung,web` clients, and without a JS runtime `tv_samsung` and
+  `web` are dropped (README, `player_client`). Forcing `tv_samsung,web` on a normal video:
+  no runtime → "n challenge solving failed … No video formats found" (0 formats); with
+  `--js-runtimes node` → 11 formats. So sign-in only works once a runtime ships (see "JS
+  runtime for yt-dlp extractor" below). yt-dlp's wiki also warns that an account used
+  with it risks being banned, and that YouTube rotates the cookies of open YouTube tabs
+  (export from a private window, or keep a profile of the app's own).
 - **Path forward:** yt-dlp supports `--cookies-from-browser <browser>`.
   Could expose this in Settings → 進階. Privacy implications: cookies
   contain auth tokens; if we read them, they're in our process memory,
